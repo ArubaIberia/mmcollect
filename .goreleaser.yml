@@ -1,0 +1,14 @@
+# .goreleaser.yml
+# Build customization
+builds:
+  - main: main.go
+binary: mmcollect
+goos:
+  - windows
+  - darwin
+  - linux
+goarch:
+  - amd64
+# Archive customization
+archive:
+  format: tar.gz
