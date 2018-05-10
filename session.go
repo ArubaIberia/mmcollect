@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ type Controller struct {
 	client http.Client
 	url    string
 	token  string
+	reg    *regexp.Regexp
 }
 
 type loginResponse struct {
@@ -30,6 +32,8 @@ type loginResponse struct {
 
 // NewController opens a session to a controller
 func NewController(md, username, pass string, timeout time.Duration, skipVerify bool) (*Controller, error) {
+	// Non-alphanumeric characters will get replaced by "_" in names
+	reg, _ := regexp.Compile("[^a-zA-Z0-9]+")
 	result := &Controller{
 		client: http.Client{
 			Timeout: timeout,
@@ -38,6 +42,7 @@ func NewController(md, username, pass string, timeout time.Duration, skipVerify 
 			},
 		},
 		url: fmt.Sprintf("https://%s:4343/v1", md),
+		reg: reg,
 	}
 	apiURL, data := result.url+"/api/login", url.Values{}
 	data.Set("username", username)
@@ -107,6 +112,7 @@ func (c *Controller) Run(cmd string, path *jsonpath.Compiled, attribs []string) 
 	if err := dec.Decode(&data); err != nil {
 		return nil, err
 	}
+	data = noWhitespace(data, c.reg)
 	if path != nil {
 		lookup, err := path.Lookup(data)
 		if err != nil {
@@ -121,7 +127,7 @@ func (c *Controller) Run(cmd string, path *jsonpath.Compiled, attribs []string) 
 // e.g. Switches("?(@.State=='up')") return switches up
 func (c *Controller) Switches(filter string) ([]string, error) {
 	// Take the IP of those switches that match the filter
-	path, err := jsonpath.Compile(fmt.Sprintf("$.All Switches[%s].IP Address", filter))
+	path, err := jsonpath.Compile(fmt.Sprintf("$.All_Switches[%s].IP_Address", strings.TrimSpace(filter)))
 	if err != nil {
 		return nil, err
 	}
@@ -140,6 +146,33 @@ func Switches(md, username, pass, filter string, timeout time.Duration, skipVeri
 	}
 	defer controller.Logout()
 	return controller.Switches(filter)
+}
+
+// noWhitespace removes non-alphanumeric characters from keys
+func noWhitespace(data interface{}, reg *regexp.Regexp) interface{} {
+	switch data := data.(type) {
+	case map[string]interface{}:
+		norm := make(map[string]interface{})
+		for k, v := range data {
+			k = reg.ReplaceAllString(k, "_")
+			// Remove also heading and trailing underscores
+			for strings.HasPrefix(k, "_") {
+				k = k[1:]
+			}
+			for strings.HasSuffix(k, "_") {
+				k = k[:len(k)-1]
+			}
+			norm[k] = noWhitespace(v, reg)
+		}
+		return norm
+	case []interface{}:
+		norm := make([]interface{}, 0, len(data))
+		for _, v := range data {
+			norm = append(norm, noWhitespace(v, reg))
+		}
+		return norm
+	}
+	return data
 }
 
 // toString turns the response into an array of lines
@@ -167,6 +200,8 @@ func toString(data interface{}, attribs []string) ([]string, error) {
 				var val string
 				if curr, ok := data[attr]; ok {
 					switch curr := curr.(type) {
+					case []byte:
+						val = string(curr)
 					case string:
 						val = curr
 					case int:

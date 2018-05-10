@@ -79,7 +79,7 @@ func main() {
 		if len(paths) > 1 {
 			path, err := jsonpath.Compile(strings.TrimSpace(paths[1]))
 			if err != nil {
-				log.Fatal("Error compiling expression ", paths[1], ": ", err)
+				log.Fatal("Error compiling expression", paths[1], ":", err)
 			}
 			curr.Path = path
 		}
@@ -117,7 +117,7 @@ func main() {
 		})
 		switches = switches[:*optLimit]
 	}
-	log.Print("Switch list collected, working on a set of ", len(switches))
+	log.Print("Switch list collected, working on a set of", len(switches))
 
 	// Run the pool
 	if *optTasks > len(switches) {
@@ -132,16 +132,16 @@ func main() {
 			err = r.Err
 		} else if optOutput == nil || *optOutput == "" {
 			// If no output specified, dump to stdout
-			fmt.Println("CONTROLLER ", r.MD)
+			fmt.Println("**Controller", r.MD)
 			err = writeLines("", r.Data)
 		} else {
 			// If there is an output prefix, dump to the proper file
 			fname := fmt.Sprintf("%s%s.log", *optOutput, r.MD)
-			fmt.Println("SAVING OUTPUT OF CONTROLLER ", r.MD, " TO ", fname)
+			fmt.Println("Saving output of controller", r.MD, "to", fname)
 			err = writeLines(fname, r.Data)
 		}
 		if err != nil {
-			fmt.Println("ERROR RUNNING AGAINST MD ", r.MD, ": ", err)
+			fmt.Println("**Error: Running against MD", r.MD, ",", err)
 		}
 	}
 }
