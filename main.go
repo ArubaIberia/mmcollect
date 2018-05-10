@@ -82,7 +82,7 @@ func main() {
 
 	// Get the password
 	fmt.Print("Password: ")
-	passBytes, err := terminal.ReadPassword(0)
+	passBytes, err := terminal.ReadPassword(int(os.Stdin.Fd()))
 	if err != nil {
 		log.Fatal(err)
 	}
