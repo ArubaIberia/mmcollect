@@ -84,7 +84,7 @@ func (c *Controller) Logout() error {
 }
 
 // Run runs a command on the controller, returns the output
-func (c *Controller) Run(cmd string, path *jsonpath.Compiled) ([]string, error) {
+func (c *Controller) Run(cmd string, path *jsonpath.Compiled, attribs []string) ([]string, error) {
 	apiURL := fmt.Sprintf("%s/configuration/showcommand?command=%s&json=1&UIDARUBA=%s",
 		c.url, url.QueryEscape(cmd), c.token)
 	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
@@ -114,7 +114,7 @@ func (c *Controller) Run(cmd string, path *jsonpath.Compiled) ([]string, error) 
 		}
 		data = lookup
 	}
-	return toString(data)
+	return toString(data, attribs)
 }
 
 // Switches lists the IP addresses of the switches that comply with the given jsonpath filter
@@ -125,11 +125,11 @@ func (c *Controller) Switches(filter string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	addresses, err := c.Run("show switches", path)
+	addresses, err := c.Run("show switches", path, nil)
 	if err != nil {
 		return nil, err
 	}
-	return toString(addresses)
+	return toString(addresses, nil)
 }
 
 // Switches asks the MM for its MDs
@@ -143,7 +143,7 @@ func Switches(md, username, pass, filter string, timeout time.Duration, skipVeri
 }
 
 // toString turns the response into an array of lines
-func toString(data interface{}) ([]string, error) {
+func toString(data interface{}, attribs []string) ([]string, error) {
 	// Test if it is actually an array of strings
 	var result []string
 	switch data := data.(type) {
@@ -154,11 +154,40 @@ func toString(data interface{}) ([]string, error) {
 	case []interface{}:
 		result = make([]string, 0, len(data))
 		for _, curr := range data {
-			tmp, err := toString(curr)
+			tmp, err := toString(curr, attribs)
 			if err != nil {
 				return nil, err
 			}
 			result = append(result, tmp...)
+		}
+	case map[string]interface{}:
+		if attribs != nil && len(attribs) >= 0 {
+			csv := make([]string, 0, len(attribs))
+			for _, attr := range attribs {
+				var val string
+				if curr, ok := data[attr]; ok {
+					switch curr := curr.(type) {
+					case string:
+						val = curr
+					case int:
+						val = string(val)
+					case float32:
+						val = string(val)
+					case float64:
+						val = string(val)
+					default:
+						val = "{Object}"
+					}
+				}
+				csv = append(csv, val)
+			}
+			result = []string{strings.Join(csv, ";")}
+		} else {
+			out, err := json.MarshalIndent(data, "", "  ")
+			if err != nil {
+				return nil, err
+			}
+			result = []string{string(out)}
 		}
 	default:
 		out, err := json.MarshalIndent(data, "", "  ")

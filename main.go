@@ -22,6 +22,7 @@ func main() {
 	DefaultArgs := "show version | $._data[0]"
 	DefaultTimeout := 60
 	DefaultVerify := false
+	DefaultDelay := 0
 
 	// Define command line arguments
 	optMD := flag.String("h", "", "IP address or host name of MM")
@@ -32,6 +33,7 @@ func main() {
 	optOutput := flag.String("o", "", "Output to a file named after the switch")
 	optTimeout := flag.Int("T", DefaultTimeout, "Request timeout in seconds")
 	optVerify := flag.Bool("v", false, "Verify MD HTTPS certificate")
+	optDelay := flag.Int("d", DefaultDelay, "Delay between commands (seconds)")
 
 	// Parse input
 	flag.Parse()
@@ -56,6 +58,9 @@ func main() {
 	if optTimeout == nil || *optTimeout <= 0 {
 		optTimeout = &DefaultTimeout
 	}
+	if optDelay == nil || *optDelay <= 0 {
+		optDelay = &DefaultDelay
+	}
 	if optVerify == nil {
 		optVerify = &DefaultVerify
 	}
@@ -67,15 +72,23 @@ func main() {
 	lines := strings.Split(strings.Join(args, " "), ";")
 	tasks := make([]Task, 0, len(lines))
 	for _, line := range lines {
-		// A Task can have the form <CLI command> | <jsonpath filter>
-		parts := strings.SplitN(line, "|", 2)
-		curr := Task{Cmd: strings.TrimSpace(parts[0]), Path: nil}
-		if len(parts) > 1 {
-			path, err := jsonpath.Compile(strings.TrimSpace(parts[1]))
+		// A Task can have the form <CLI command> | <jsonpath filter> > <comma-separated attributes>
+		attrs := strings.SplitN(line, ">", 2)
+		paths := strings.SplitN(attrs[0], "|", 2)
+		curr := Task{Cmd: strings.TrimSpace(paths[0]), Path: nil, Attr: nil}
+		if len(paths) > 1 {
+			path, err := jsonpath.Compile(strings.TrimSpace(paths[1]))
 			if err != nil {
-				log.Fatal("Error compiling expression ", parts[1], ": ", err)
+				log.Fatal("Error compiling expression ", paths[1], ": ", err)
 			}
 			curr.Path = path
+		}
+		if len(attrs) > 1 {
+			split := strings.Split(attrs[1], ",")
+			curr.Attr = make([]string, 0, len(split))
+			for _, attr := range split {
+				curr.Attr = append(curr.Attr, strings.TrimSpace(attr))
+			}
 		}
 		tasks = append(tasks, curr)
 	}
@@ -90,7 +103,9 @@ func main() {
 	fmt.Println("")
 
 	// Get MD switches
+	log.Print("Getting the switch list")
 	timeout := time.Second * time.Duration(*optTimeout)
+	delay := time.Second * time.Duration(*optDelay)
 	switches, err := Switches(*optMD, *optUsername, pass, *optFilter, timeout, !(*optVerify))
 	if err != nil {
 		log.Fatal(err)
@@ -102,12 +117,13 @@ func main() {
 		})
 		switches = switches[:*optLimit]
 	}
+	log.Print("Switch list collected, working on a set of ", len(switches))
 
 	// Run the pool
 	if *optTasks > len(switches) {
 		*optTasks = len(switches)
 	}
-	pool := NewPool(*optTasks, timeout, !(*optVerify))
+	pool := NewPool(*optTasks, delay, timeout, !(*optVerify))
 	pool.Push(*optUsername, pass, switches, tasks)
 	log.Print("Waiting for workers to complete!")
 	for r := range pool.Results() {

@@ -11,6 +11,7 @@ import (
 type Task struct {
 	Cmd  string
 	Path *jsonpath.Compiled
+	Attr []string
 }
 
 // Result is the result of running one or more commands in a controller
@@ -29,14 +30,16 @@ type Pool struct {
 	results    chan Result
 	wg         sync.WaitGroup
 	timeout    time.Duration
+	delay      time.Duration
 	skipVerify bool
 }
 
 // NewPool returns a new Task Pool
-func NewPool(tasks int, timeout time.Duration, skipVerify bool) *Pool {
+func NewPool(tasks int, delay, timeout time.Duration, skipVerify bool) *Pool {
 	p := &Pool{
 		queue:      make(chan Worker),
 		results:    make(chan Result),
+		delay:      delay,
 		timeout:    timeout,
 		skipVerify: skipVerify,
 	}
@@ -86,8 +89,15 @@ func (p *Pool) run(md, username, pass string, commands []Task) ([]string, error)
 	}
 	defer controller.Logout()
 	results := make([]string, 0, len(commands))
+	first := true
 	for _, cmd := range commands {
-		curr, err := controller.Run(cmd.Cmd, cmd.Path)
+		// add delay, if requested
+		if first {
+			first = false
+		} else if p.delay > 0 {
+			time.Sleep(p.delay)
+		}
+		curr, err := controller.Run(cmd.Cmd, cmd.Path, cmd.Attr)
 		if err != nil {
 			return nil, err
 		}
