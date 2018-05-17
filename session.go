@@ -118,7 +118,7 @@ func (c *Controller) Run(cmd string, path Lookup, attribs []string) ([]string, e
 		}
 		data = lookup
 	}
-	return toString(data, attribs)
+	return Select(data, attribs)
 }
 
 // Switches lists the IP addresses of the switches that comply with the given jsonpath filters
@@ -170,63 +170,4 @@ func noWhitespace(data interface{}, reg *regexp.Regexp) interface{} {
 		return norm
 	}
 	return data
-}
-
-// toString turns the response into an array of lines
-func toString(data interface{}, attribs []string) ([]string, error) {
-	// Test if it is actually an array of strings
-	var result []string
-	switch data := data.(type) {
-	case []string:
-		result = data
-	case string:
-		result = []string{data}
-	case []interface{}:
-		result = make([]string, 0, len(data))
-		for _, curr := range data {
-			tmp, err := toString(curr, attribs)
-			if err != nil {
-				return nil, err
-			}
-			result = append(result, tmp...)
-		}
-	case map[string]interface{}:
-		if attribs != nil && len(attribs) >= 0 {
-			csv := make([]string, 0, len(attribs))
-			for _, attr := range attribs {
-				var val string
-				if curr, ok := data[attr]; ok {
-					switch curr := curr.(type) {
-					case []byte:
-						val = string(curr)
-					case string:
-						val = curr
-					case int:
-						val = string(val)
-					case float32:
-						val = string(val)
-					case float64:
-						val = string(val)
-					default:
-						val = "{Object}"
-					}
-				}
-				csv = append(csv, val)
-			}
-			result = []string{strings.Join(csv, ";")}
-		} else {
-			out, err := json.MarshalIndent(data, "", "  ")
-			if err != nil {
-				return nil, err
-			}
-			result = []string{string(out)}
-		}
-	default:
-		out, err := json.MarshalIndent(data, "", "  ")
-		if err != nil {
-			return nil, err
-		}
-		result = []string{string(out)}
-	}
-	return result, nil
 }

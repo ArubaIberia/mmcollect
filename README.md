@@ -1,6 +1,6 @@
 # mmcollect
 
-MMCollect is a small tool to collect the output of "show" commands from all controllers (also called MDs or Managed Devices) connected to a Mobility Manager.
+mmcollect is a small tool to collect the output of "show" commands from all controllers (also called MDs or Managed Devices) connected to a Mobility Manager.
 
 The basic usage requires just the IP address (or hostname) of the Mobility Manager, an username, and the command to run: 
 
@@ -13,27 +13,120 @@ More advanced use cases are described below.
 
 ## Connecting to the MM and Controllers
 
-MMCollect does not use a regular telnet/ssh connection to run the show commands, but the REST API os AOS 8.X. To connect to the API, the host where you run mmconnect needs connectivity to **TCP PORT 4343** of the MM and controllers.
+mmcollect does not use a regular telnet/ssh connection to run the show commands, but the REST API of AOS 8.X. To connect to the API, the host where you run mmcollect needs connectivity to **TCP PORT 4343** of the MM and controllers.
 
 A side effect of using the API is that show commands must be typed full, with no abbreviations. I.e. `show ip int brief` won't work, you need to type the whole thing: `show ip interface brief`
 
-Another side effect is that pipes are not supported, i.e. `show ip interface brief | include vlan` won't work either. Filtering can be done using [jsonpath](https://github.com/oliveagle/jsonpath) expressions, see the filtering section below for some examples.
+Another side effect is that filters behave a little different, i.e. `show ip interface brief | include vlan` does not do what you would expect. Filtering should be done using [jsonpath](https://github.com/oliveagle/jsonpath) expressions, see the filtering section below for some examples.
 
-If you are not sure of the full syntax of a command and want to check, you can limit the number of controllers to target, so you don't fire a wrong command to hundreds of MDs:
+## Filtering
+
+The output of "show" requests received through the REST API is not raw text, but json objects. You will notice if you try something like `show ip access-list brief`:
 
 ```bash
-# -l option limits the number of controllers to connect to
-mmcollect -h your.mm.ip.address -u username -l 1 "show ip interfaces brief"
-# You will get an error because it is not "show ip interfaces", but "show ip interface". Try again
-mmcollect -h your.mm.ip.address -u username -l 1 "show ip interface brief"
-# Now that you tested it works, you can remove the -l 1
-mmcollect -h your.mm.ip.address -u username "show ip interface brief"
+mmcollect -u admin -h your.mm.ip.address "show ip access-list brief"
+Password: 
+
+2018/05/10 19:10:06 Getting the switch list
+2018/05/10 19:10:07 Switch list collected, working on a set of 2
+2018/05/10 19:10:07 Waiting for workers to complete!
+CONTROLLER  x.x.x.x
+{
+  "Access_list_table_4_IPv4_6_IPv6": [
+    {
+      "Name": "allow-diskservices",
+      "Roles": null,
+      "Type": "session(4)",
+      "Use_Count": null
+    },
+    {
+      "Name": "allow-printservices",
+      "Roles": null,
+      "Type": "session(4)",
+      "Use_Count": null
+    },
+# ... omitted for brevity
 ```
 
-You can also run several consecutive commands, separated by a semicolon:
+You see, you get a JSON object as a reply! mmcollect supports [jsonpath](https://github.com/oliveagle/jsonpath) syntax to filter the value returned by the controller. Say you want to collect only session access-list:
 
 ```bash
-mmcollect -h your.mm.ip.address -u username "show ip interface brief; show user-table verbose"
+mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_list_table_4_IPv4_6_IPv6[?(@.Type == 'session(4)')]"
+Password: 
+
+2018/05/10 19:15:41 Getting the switch list
+2018/05/10 19:15:41 Switch list collected, working on a set of 2
+2018/05/10 19:15:41 Waiting for workers to complete!
+CONTROLLER  x.x.x.x
+{
+  "Name": "allow-diskservices",
+  "Roles": null,
+  "Type": "session(4)",
+  "Use Count": null
+}
+{
+  "Name": "allow-printservices",
+  "Roles": null,
+  "Type": "session(4)",
+  "Use Count": null
+}
+# ... omitted for brevity
+```
+
+Or you want only ACLs with the name "print" in it:
+
+```bash
+mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_list_table_4_IPv4_6_IPv6[?(@.Name =~ /print/)]"
+Password: 
+
+2018/05/10 19:15:41 Getting the switch list
+2018/05/10 19:15:41 Switch list collected, working on a set of 2
+2018/05/10 19:15:41 Waiting for workers to complete!
+CONTROLLER  x.x.x.x
+{
+  "Name": "allow-printservices",
+  "Roles": null,
+  "Type": "session(4)",
+  "Use Count": null
+}
+```
+
+### Concatenating filters
+
+You can concatenate several filters, separated by pipes. The output of one filter is fed into the next one. **If the output of some filter is an array, you must skip the "$[ ]" part in the next filter**. I.e. **Instead of**:
+
+```bash
+mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_list_table_4_IPv4_6_IPv6[?(@.Type == 'session(4)')] | $[?(@.Name =~ /print/)]"
+```
+
+**Do**:
+
+```bash
+# Since the output of first filter is an array, we skip the starting "$[" and ending "]" in the second filter
+mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_list_table_4_IPv4_6_IPv6[?(@.Type == 'session(4)')] | ?(@.Name =~ /print/)"
+```
+
+You can even do:
+
+```bash
+mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_list_table_4_IPv4_6_IPv6 | ?(@.Type == 'session(4)') | ?(@.Name =~ /print/)"
+```
+
+### Plain text filters
+
+You can also use plain ol' **include** or **begin** keywords to filter strings or arrays of strings. If the output of one filter is a string or list of strings, the next filter can be an *include* or *begin*:
+
+```bash
+mmcollect -u admin -h your.mm.ip.address "show datapath session table | $.data[0] | inc 10.1.2.3"
+```
+
+It is very common for the REST API to return strings wrapped inside an object with a single field, *data*. So as a convenience, *include* and *begin* filters will automatically recognize this wrapped data and do the right thing. I.e. these expressions do the same:
+
+```bash
+# Explicitly turning the result into an array of strings
+mmcollect -u admin -h your.mm.ip.address "show datapath session table | $.data[0] | inc 10.1.2.3"
+# Letting 'include' do the unwrapping
+mmcollect -u admin -h your.mm.ip.address "show datapath session table | include 10.1.2.3"
 ```
 
 ## Running several threads in parallel
@@ -84,99 +177,7 @@ Operators supported (referenced from github.com/jayway/JsonPath):
 | [start:end] 			  | Y | Array slice operator |
 | [?(<expression>)] 	  | Y | Filter expression. Expression must evaluate to a boolean value. |
 
-## Filtering the output of a command
-
-The output of "show" requests sent through the REST API is not raw text, but json objects. You will notice if you try something like `show ip access-list brief`:
-
-```bash
-mmcollect -u admin -h your.mm.ip.address "show ip access-list brief"
-Password: 
-
-2018/05/10 19:10:06 Getting the switch list
-2018/05/10 19:10:07 Switch list collected, working on a set of 2
-2018/05/10 19:10:07 Waiting for workers to complete!
-CONTROLLER  x.x.x.x
-{
-  "Access_list_table_4_IPv4_6_IPv6": [
-    {
-      "Name": "allow-diskservices",
-      "Roles": null,
-      "Type": "session(4)",
-      "Use_Count": null
-    },
-    {
-      "Name": "allow-printservices",
-      "Roles": null,
-      "Type": "session(4)",
-      "Use_Count": null
-    },
-# ... omitted for brevity
-```
-
-You see, you get a JSON object as a reply! mmcollect supports [jsonpath](https://github.com/oliveagle/jsonpath) syntax to filter the value returned by the controller, too. Say you want to collect only session access-list:
-
-```bash
-mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_list_table_4_IPv4_6_IPv6[?(@.Type == 'session(4)')]"
-Password: 
-
-2018/05/10 19:15:41 Getting the switch list
-2018/05/10 19:15:41 Switch list collected, working on a set of 2
-2018/05/10 19:15:41 Waiting for workers to complete!
-CONTROLLER  x.x.x.x
-{
-  "Name": "allow-diskservices",
-  "Roles": null,
-  "Type": "session(4)",
-  "Use Count": null
-}
-{
-  "Name": "allow-printservices",
-  "Roles": null,
-  "Type": "session(4)",
-  "Use Count": null
-}
-# ... omitted for brevity
-```
-
-Or you want only ACLs with the name "print" in it:
-
-```bash
-mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_list_table_4_IPv4_6_IPv6[?(@.Name =~ /print/)]"
-Password: 
-
-2018/05/10 19:15:41 Getting the switch list
-2018/05/10 19:15:41 Switch list collected, working on a set of 2
-2018/05/10 19:15:41 Waiting for workers to complete!
-CONTROLLER  x.x.x.x
-{
-  "Name": "allow-printservices",
-  "Roles": null,
-  "Type": "session(4)",
-  "Use Count": null
-}
-```
-
-You can also concatenate several filters, separated by pipes. **If the top-level object you are filtering is an array, skip the "$[ ]" part**. I.e. **Instead of**:
-
-```bash
-mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_list_table_4_IPv4_6_IPv6[?(@.Type == 'session(4)')] | $[?(@.Name =~ /print/)]"
-```
-
-**Do**:
-
-```bash
-# Notice how we skip the starting "$[" and ending "]" in the second filter,
-# because the first filter returns an array.
-mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_list_table_4_IPv4_6_IPv6[?(@.Type == 'session(4)')] | ?(@.Name =~ /print/)"
-```
-
-You can even do:
-
-```bash
-mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_list_table_4_IPv4_6_IPv6 | ?(@.Type == 'session(4)') | ?(@.Name =~ /print/)"
-```
-
-## Flatenning a JSON object
+## Field selectors
 
 Sometimes you don't want the full JSON object returned by the controller, but just a few fields. MMcollect lets you combine filtering with **sttribute selection**, usign the **>** sign after the command or filter. Name the fields you want extracted, separated by commas:
 
@@ -194,6 +195,20 @@ ap-acl;session(4)
 captiveportal;session(4)
 citrix-acl;session(4)
 # ... omitted for brevity
+```
+
+## Running several commands in a row
+
+You can run several consecutive commands, separated by a semicolon:
+
+```bash
+mmcollect -h your.mm.ip.address -u username "show ip interface brief; show user-table verbose"
+```
+
+Each command can have its own set of filters and field selectors.
+
+```bash
+mmcollect -h your.mm.ip.address -u username "show ip interface brief | inc vlan; show user-table verbose"
 ```
 
 ## Delay between commands
