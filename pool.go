@@ -3,14 +3,12 @@ package main
 import (
 	"sync"
 	"time"
-
-	"github.com/oliveagle/jsonpath"
 )
 
 // Task is a command to run on a controller
 type Task struct {
 	Cmd  string
-	Path []*jsonpath.Compiled
+	Path Lookup
 	Attr []string
 }
 

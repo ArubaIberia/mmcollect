@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oliveagle/jsonpath"
 	"golang.org/x/crypto/ssh/terminal"
 )
 
@@ -78,7 +77,7 @@ func main() {
 		paths := strings.SplitN(attrs[0], "|", 2)
 		curr := Task{Cmd: strings.TrimSpace(paths[0]), Path: nil, Attr: nil}
 		if len(paths) > 1 {
-			compiled, err := asFilter(paths[1])
+			compiled, err := NewLookup(paths[1])
 			if err != nil {
 				log.Fatal("Error compiling expression", paths[1], ":", err)
 			}
@@ -112,15 +111,15 @@ func main() {
 	log.Print("Getting the switch list")
 	timeout := time.Second * time.Duration(*optTimeout)
 	delay := time.Second * time.Duration(*optDelay)
-	var filters []*jsonpath.Compiled
+	var filter Lookup
 	if optFilter != nil && *optFilter != "" {
-		compiled, err := asFilter(*optFilter)
+		compiled, err := NewLookup(*optFilter)
 		if err != nil {
 			log.Fatal(err)
 		}
-		filters = compiled
+		filter = compiled
 	}
-	switches, err := Switches(*optMD, *optUsername, pass, filters, timeout, !(*optVerify))
+	switches, err := Switches(*optMD, *optUsername, pass, filter, timeout, !(*optVerify))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -144,15 +143,12 @@ func main() {
 		var err error
 		if r.Err != nil {
 			err = r.Err
-		} else if optOutput == nil || *optOutput == "" {
-			// If no output specified, dump to stdout
-			fmt.Println("**Controller", r.MD)
-			err = writeLines("", r.Data)
 		} else {
-			// If there is an output prefix, dump to the proper file
-			fname := fmt.Sprintf("%s%s.log", *optOutput, r.MD)
-			fmt.Println("Saving output of controller", r.MD, "to", fname)
-			err = writeLines(fname, r.Data)
+			fname := ""
+			if optOutput != nil && *optOutput != "" {
+				fname = fmt.Sprintf("%s%s.log", *optOutput, r.MD)
+			}
+			err = writeLines(fname, r.Data, "*** Controller", r.MD, "[", fname, "]")
 		}
 		if err != nil {
 			fmt.Println("**Error: Running against MD", r.MD, ",", err)
@@ -161,7 +157,7 @@ func main() {
 }
 
 // writeLines dumps the array to the given file, or stdout
-func writeLines(fname string, lines []string) error {
+func writeLines(fname string, lines []string, header ...interface{}) error {
 	var w io.WriteCloser
 	var err error
 	if fname == "" {
@@ -172,31 +168,21 @@ func writeLines(fname string, lines []string) error {
 			return err
 		}
 	}
-	for _, line := range lines {
-		fmt.Fprintln(w, line)
-	}
-	if fname != "" {
-		w.Close()
+	// Dump a header to separate different controllers
+	fmt.Fprintln(os.Stderr, header...)
+	if fname == "" {
+		// When output is stdout, this funtion is blocking
+		for _, line := range lines {
+			fmt.Fprintln(w, line)
+		}
+	} else {
+		// When output is a file, the function yields a worker and doesn't block
+		go func() {
+			defer w.Close()
+			for _, line := range lines {
+				fmt.Fprintln(w, line)
+			}
+		}()
 	}
 	return nil
-}
-
-// asFilter turns a chain of filters into a list of compiledPaths
-func asFilter(chain string) ([]*jsonpath.Compiled, error) {
-	result := make([]*jsonpath.Compiled, 0, 10)
-	for _, filter := range strings.Split(chain, "|") {
-		if f := strings.TrimSpace(filter); len(f) > 0 {
-			// Syntactic sugar: if it looks like a filter,
-			// wrap it inside $._[]
-			if strings.HasPrefix(f, "?(") {
-				f = fmt.Sprintf("$._[%s]", f)
-			}
-			c, err := jsonpath.Compile(f)
-			if err != nil {
-				return nil, err
-			}
-			result = append(result, c)
-		}
-	}
-	return result, nil
 }
