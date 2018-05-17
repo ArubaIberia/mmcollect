@@ -215,3 +215,20 @@ For instance, if you want to same all the logs into folder *logs* with names *sw
 # Run "show datapath session" three times, with 5 seconds delay between each run
 mmcollect -u admin -h your.mm.ip.address -o logs/switch- "show datapath session table"
 ```
+
+## Running in batch
+
+If you want to run the command in batch mode (not interactively), you can provide the password through the *-p <password> flag, for example:
+
+```bash
+mmcollect -u admin -h your.mm.ip.address -p <your-password> "show datapath session table"
+```
+
+It may be wise to use environment variables or shell expansion instead of a literal password, so your credentials do not show up in the output of "ps -a", for example:
+
+```bash
+# Use an environment variable
+mmcollect -u admin -h your.mm.ip.address -p "$MYPASS" "show datapath session table"
+# Use a secret file
+mmcollect -u admin -h your.mm.ip.address -p `cat ~/.secret_pass` "show datapath session table"
+```

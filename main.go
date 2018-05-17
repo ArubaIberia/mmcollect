@@ -33,6 +33,7 @@ func main() {
 	optOutput := flag.String("o", "", "Output to a file named after the switch")
 	optTimeout := flag.Int("T", DefaultTimeout, "Request timeout in seconds")
 	optVerify := flag.Bool("v", false, "Verify MD HTTPS certificate")
+	optPassword := flag.String("p", "", "Login password")
 	optDelay := flag.Int("d", DefaultDelay, "Delay between commands (seconds)")
 
 	// Parse input
@@ -94,13 +95,18 @@ func main() {
 	}
 
 	// Get the password
-	fmt.Print("Password: ")
-	passBytes, err := terminal.ReadPassword(int(os.Stdin.Fd()))
-	if err != nil {
-		log.Fatal(err)
+	var pass string
+	if optPassword != nil && len(*optPassword) > 0 {
+		pass = *optPassword
+	} else {
+		fmt.Print("Password: ")
+		passBytes, err := terminal.ReadPassword(int(os.Stdin.Fd()))
+		if err != nil {
+			log.Fatal(err)
+		}
+		pass = string(passBytes)
+		fmt.Println("")
 	}
-	pass := string(passBytes)
-	fmt.Println("")
 
 	// Get MD switches
 	log.Print("Getting the switch list")
