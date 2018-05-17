@@ -10,7 +10,7 @@ import (
 // Task is a command to run on a controller
 type Task struct {
 	Cmd  string
-	Path *jsonpath.Compiled
+	Path []*jsonpath.Compiled
 	Attr []string
 }
 

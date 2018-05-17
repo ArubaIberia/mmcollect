@@ -88,8 +88,8 @@ func (c *Controller) Logout() error {
 	return nil
 }
 
-// Run runs a command on the controller, returns the output
-func (c *Controller) Run(cmd string, path *jsonpath.Compiled, attribs []string) ([]string, error) {
+// Run runs a command on the controller, filters the output through the jsonpath expression, and gets the requested attribs
+func (c *Controller) Run(cmd string, paths []*jsonpath.Compiled, attribs []string) ([]string, error) {
 	apiURL := fmt.Sprintf("%s/configuration/showcommand?command=%s&json=1&UIDARUBA=%s",
 		c.url, url.QueryEscape(cmd), c.token)
 	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
@@ -113,39 +113,51 @@ func (c *Controller) Run(cmd string, path *jsonpath.Compiled, attribs []string) 
 		return nil, err
 	}
 	data = noWhitespace(data, c.reg)
-	if path != nil {
-		lookup, err := path.Lookup(data)
-		if err != nil {
-			return nil, err
+	if paths != nil && len(paths) > 0 {
+		for _, path := range paths {
+			// Workaround for the jsonpath library to filter top-level arrays...
+			// if the data is a top-level array, replace with an object with a single property, "_".
+			// So your filters, instead of "$[...]" must be written "$._[...]"
+			switch test := data.(type) {
+			case []string:
+				data = map[string]interface{}{"_": test}
+			case []interface{}:
+				data = map[string]interface{}{"_": test}
+			}
+			lookup, err := path.Lookup(data)
+			if err != nil {
+				return nil, err
+			}
+			data = lookup
 		}
-		data = lookup
 	}
 	return toString(data, attribs)
 }
 
-// Switches lists the IP addresses of the switches that comply with the given jsonpath filter
+// Switches lists the IP addresses of the switches that comply with the given jsonpath filters
 // e.g. Switches("?(@.State=='up')") return switches up
-func (c *Controller) Switches(filter string) ([]string, error) {
-	// Take the IP of those switches that match the filter
-	path, err := jsonpath.Compile(fmt.Sprintf("$.All_Switches[%s].IP_Address", strings.TrimSpace(filter)))
+func (c *Controller) Switches(filters []*jsonpath.Compiled) ([]string, error) {
+	paths := make([]*jsonpath.Compiled, 0, len(filters)+1)
+	// Prefilter, always on:
+	first, err := jsonpath.Compile("$.All_Switches[?(@.Status == 'up')]")
 	if err != nil {
 		return nil, err
 	}
-	addresses, err := c.Run("show switches", path, nil)
-	if err != nil {
-		return nil, err
+	paths = append(paths, first)
+	if filters != nil {
+		paths = append(paths, filters...)
 	}
-	return toString(addresses, nil)
+	return c.Run("show switches", paths, []string{"IP_Address"})
 }
 
 // Switches asks the MM for its MDs
-func Switches(md, username, pass, filter string, timeout time.Duration, skipVerify bool) ([]string, error) {
+func Switches(md, username, pass string, filters []*jsonpath.Compiled, timeout time.Duration, skipVerify bool) ([]string, error) {
 	controller, err := NewController(md, username, pass, timeout, skipVerify)
 	if err != nil {
 		return nil, err
 	}
 	defer controller.Logout()
-	return controller.Switches(filter)
+	return controller.Switches(filters)
 }
 
 // noWhitespace removes non-alphanumeric characters from keys

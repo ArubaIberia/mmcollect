@@ -17,7 +17,7 @@ import (
 func main() {
 
 	// Defaults for some command line arguments
-	DefaultFilter := "?(@.Status == 'up')"
+	DefaultFilter := ""
 	DefaultTasks := 25
 	DefaultArgs := "show version | $._data[0]"
 	DefaultTimeout := 60
@@ -77,11 +77,11 @@ func main() {
 		paths := strings.SplitN(attrs[0], "|", 2)
 		curr := Task{Cmd: strings.TrimSpace(paths[0]), Path: nil, Attr: nil}
 		if len(paths) > 1 {
-			path, err := jsonpath.Compile(strings.TrimSpace(paths[1]))
+			compiled, err := asFilter(paths[1])
 			if err != nil {
 				log.Fatal("Error compiling expression", paths[1], ":", err)
 			}
-			curr.Path = path
+			curr.Path = compiled
 		}
 		if len(attrs) > 1 {
 			split := strings.Split(attrs[1], ",")
@@ -106,7 +106,15 @@ func main() {
 	log.Print("Getting the switch list")
 	timeout := time.Second * time.Duration(*optTimeout)
 	delay := time.Second * time.Duration(*optDelay)
-	switches, err := Switches(*optMD, *optUsername, pass, *optFilter, timeout, !(*optVerify))
+	var filters []*jsonpath.Compiled
+	if optFilter != nil && *optFilter != "" {
+		compiled, err := asFilter(*optFilter)
+		if err != nil {
+			log.Fatal(err)
+		}
+		filters = compiled
+	}
+	switches, err := Switches(*optMD, *optUsername, pass, filters, timeout, !(*optVerify))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -117,7 +125,7 @@ func main() {
 		})
 		switches = switches[:*optLimit]
 	}
-	log.Print("Switch list collected, working on a set of", len(switches))
+	log.Println("Switch list collected, working on a set of ", len(switches))
 
 	// Run the pool
 	if *optTasks > len(switches) {
@@ -165,4 +173,24 @@ func writeLines(fname string, lines []string) error {
 		w.Close()
 	}
 	return nil
+}
+
+// asFilter turns a chain of filters into a list of compiledPaths
+func asFilter(chain string) ([]*jsonpath.Compiled, error) {
+	result := make([]*jsonpath.Compiled, 0, 10)
+	for _, filter := range strings.Split(chain, "|") {
+		if f := strings.TrimSpace(filter); len(f) > 0 {
+			// Syntactic sugar: if it looks like a filter,
+			// wrap it inside $._[]
+			if strings.HasPrefix(f, "?(") {
+				f = fmt.Sprintf("$._[%s]", f)
+			}
+			c, err := jsonpath.Compile(f)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, c)
+		}
+	}
+	return result, nil
 }

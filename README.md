@@ -63,7 +63,12 @@ mmcollect -h your.mm.ip.address -u username -f "?(@.Configuration_State == 'UPDA
 
 Notice from the last example above how mmcollect replaces whitespace and other non-alphanumeric characters with underscores ('_') in attribute names, to workaround some problems with that kind of attributes in jsonpath expressions.
 
-Unfortunately, you cannot filter on two criteria yet.
+You can specify several filter criteria, separated by pipes (**"|"**), for example:
+
+```bash
+# Run the commands on Aruba 7010 controllers with status "UPDATE SUCCESSFUL:
+mmcollect -h your.mm.ip.address -u username -f "?(@.Model == 'Aruba7010') | ?(@.Configuration_State == 'UPDATE SUCCESSFULL')" "show version"
+```
 
 Operators supported (referenced from github.com/jayway/JsonPath):
 
@@ -136,7 +141,7 @@ CONTROLLER  x.x.x.x
 Or you want only ACLs with the name "print" in it:
 
 ```bash
-mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_list_table_4_IPv4_6_IPv6)[?(@.Name =~ /print/)]"
+mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_list_table_4_IPv4_6_IPv6[?(@.Name =~ /print/)]"
 Password: 
 
 2018/05/10 19:15:41 Getting the switch list
@@ -149,6 +154,26 @@ CONTROLLER  x.x.x.x
   "Type": "session(4)",
   "Use Count": null
 }
+```
+
+You can also concatenate several filters, separated by pipes. **If the top-level object you are filtering is an array, skip the "$[ ]" part**. I.e. **Instead of**:
+
+```bash
+mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_list_table_4_IPv4_6_IPv6[?(@.Type == 'session(4)')] | $[?(@.Name =~ /print/)]"
+```
+
+**Do**:
+
+```bash
+# Notice how we skip the starting "$[" and ending "]" in the second filter,
+# because the first filter returns an array.
+mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_list_table_4_IPv4_6_IPv6[?(@.Type == 'session(4)')] | ?(@.Name =~ /print/)"
+```
+
+You can even do:
+
+```bash
+mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_list_table_4_IPv4_6_IPv6 | ?(@.Type == 'session(4)') | ?(@.Name =~ /print/)"
 ```
 
 ## Flatenning a JSON object
