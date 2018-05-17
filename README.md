@@ -66,8 +66,8 @@ Notice from the last example above how mmcollect replaces whitespace and other n
 You can specify several filter criteria, separated by pipes (**"|"**), for example:
 
 ```bash
-# Run the commands on Aruba 7010 controllers with status "UPDATE SUCCESSFUL:
-mmcollect -h your.mm.ip.address -u username -f "?(@.Model == 'Aruba7010') | ?(@.Configuration_State == 'UPDATE SUCCESSFULL')" "show version"
+# Run the commands on Aruba 7010 controllers with status "UPDATE SUCCESSFUL":
+mmcollect -h your.mm.ip.address -u username -f "?(@.Model == 'Aruba7010') | ?(@.Configuration_State == 'UPDATE SUCCESSFUL')" "show version"
 ```
 
 Operators supported (referenced from github.com/jayway/JsonPath):
