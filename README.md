@@ -48,7 +48,23 @@ CONTROLLER  x.x.x.x
 # ... omitted for brevity
 ```
 
-You see, you get a JSON object as a reply! mmcollect supports [jsonpath](https://github.com/oliveagle/jsonpath) syntax to filter the value returned by the controller. Say you want to collect only session access-list:
+You see, you get a JSON object as a reply! Notice from the example above how mmcollect replaces whitespace and other non-alphanumeric characters with underscores ('_') in attribute names, to workaround some problems when working with those attributes.
+
+mmcollect supports [jsonpath](https://github.com/oliveagle/jsonpath) syntax to filter the values returned by the controller. Operators supported (referenced from github.com/jayway/JsonPath):
+
+| Operator | Supported | Description |
+| ---- | :---: | ---------- |
+| $ 					  | Y | The root element to query. This starts all path expressions. |
+| @ 				      | Y | The current node being processed by a filter predicate. |
+| * 					  | X | Wildcard. Available anywhere a name or numeric are required. |
+| .. 					  | X | Deep scan. Available anywhere a name is required. |
+| .<name> 				  | Y | Dot-notated child |
+| ['<name>' (, '<name>')] | X | Bracket-notated child or children |
+| [<number> (, <number>)] | Y | Array index or indexes |
+| [start:end] 			  | Y | Array slice operator |
+| [?(<expression>)] 	  | Y | Filter expression. Expression must evaluate to a boolean value. |
+
+For example, say you want to collect only session access-list:
 
 ```bash
 mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_list_table_4_IPv4_6_IPv6[?(@.Type == 'session(4)')]"
@@ -62,13 +78,13 @@ CONTROLLER  x.x.x.x
   "Name": "allow-diskservices",
   "Roles": null,
   "Type": "session(4)",
-  "Use Count": null
+  "Use_Count": null
 }
 {
   "Name": "allow-printservices",
   "Roles": null,
   "Type": "session(4)",
-  "Use Count": null
+  "Use_Count": null
 }
 # ... omitted for brevity
 ```
@@ -87,23 +103,9 @@ CONTROLLER  x.x.x.x
   "Name": "allow-printservices",
   "Roles": null,
   "Type": "session(4)",
-  "Use Count": null
+  "Use_Count": null
 }
 ```
-
-Operators supported (referenced from github.com/jayway/JsonPath):
-
-| Operator | Supported | Description |
-| ---- | :---: | ---------- |
-| $ 					  | Y | The root element to query. This starts all path expressions. |
-| @ 				      | Y | The current node being processed by a filter predicate. |
-| * 					  | X | Wildcard. Available anywhere a name or numeric are required. |
-| .. 					  | X | Deep scan. Available anywhere a name is required. |
-| .<name> 				  | Y | Dot-notated child |
-| ['<name>' (, '<name>')] | X | Bracket-notated child or children |
-| [<number> (, <number>)] | Y | Array index or indexes |
-| [start:end] 			  | Y | Array slice operator |
-| [?(<expression>)] 	  | Y | Filter expression. Expression must evaluate to a boolean value. |
 
 ### Concatenating filters
 
@@ -134,11 +136,11 @@ You can also use plain ol' **include** or **begin** keywords to filter strings o
 mmcollect -u admin -h your.mm.ip.address "show datapath session table | $._data | inc 10.1.2.3"
 ```
 
-## Selecting the controllers to collect data
+## Selecting controllers
 
-By default mmcollect runs the commands you provide in every controller that is "up", from the point of view of the MM. But you can narrow down on which controllers will the command be run, by specifyng a [jsonpath](https://github.com/oliveagle/jsonpath) filter with the *-f <filter>* command line option.
+By default mmcollect selects the controllers to scan by running `show switches` in the Mobility Manager, and filtering the output with the filter expression `?(@.Status == 'up')`) to find out all controllers that are 'up'.
 
-A few examples:
+You can narrow down the controllers that mmcollect will scan by specifyng additional [jsonpath](https://github.com/oliveagle/jsonpath) filter expressions with the *-f <filter>* flag. A few examples:
 
 ```bash
 # Run the commands on Aruba 7005 controllers:
@@ -150,8 +152,6 @@ mmcollect -h your.mm.ip.address -u username -f "?(@.Location =~ /Building1/)" "s
 # Run the command on controllers with status "UPDATE SUCCESSFUL"
 mmcollect -h your.mm.ip.address -u username -f "?(@.Configuration_State == 'UPDATE SUCCESSFUL')" "show version"
 ```
-
-Notice from the last example above how mmcollect replaces whitespace and other non-alphanumeric characters with underscores ('_') in attribute names, to workaround some problems with that kind of attributes in jsonpath expressions.
 
 You can also specify several filter criteria separated by pipes, as usual:
 
