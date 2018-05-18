@@ -86,8 +86,8 @@ func (c *Controller) Logout() error {
 	return nil
 }
 
-// Run runs a command on the controller, filters the output through the jsonpath expression, and gets the requested attribs
-func (c *Controller) Run(cmd string, path Lookup, attribs []string) ([]string, error) {
+// Show runs a command on the controller, filters the output through the jsonpath expression, and gets the requested attribs
+func (c *Controller) Show(cmd string, path Lookup, attribs []string) ([]string, error) {
 	apiURL := fmt.Sprintf("%s/configuration/showcommand?command=%s&json=1&UIDARUBA=%s",
 		c.url, url.QueryEscape(cmd), c.token)
 	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
@@ -132,7 +132,7 @@ func (c *Controller) Switches(filter Lookup) ([]string, error) {
 	if filter != nil {
 		path = append(path, filter)
 	}
-	return c.Run("show switches", path, []string{"IP_Address"})
+	return c.Show("show switches", path, []string{"IP_Address"})
 }
 
 // Switches asks the MM for its MDs

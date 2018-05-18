@@ -95,7 +95,7 @@ func (p *Pool) run(md, username, pass string, commands []Task) ([]string, error)
 		} else if p.delay > 0 {
 			time.Sleep(p.delay)
 		}
-		curr, err := controller.Run(cmd.Cmd, cmd.Path, cmd.Attr)
+		curr, err := controller.Show(cmd.Cmd, cmd.Path, cmd.Attr)
 		if err != nil {
 			return nil, err
 		}
