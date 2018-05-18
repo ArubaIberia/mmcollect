@@ -70,11 +70,11 @@ func main() {
 	}
 
 	// Turn the request into a list of Tasks
-	lines := strings.Split(strings.Join(args, " "), ";")
-	tasks := make([]Task, 0, len(lines))
-	for _, line := range lines {
+	commands := SplitNonEmpty(strings.Join(args, " "), ";")
+	tasks := make([]Task, 0, len(commands))
+	for _, command := range commands {
 		// A Task can have the form <CLI command> | <jsonpath filter> > <comma-separated attributes>
-		attrs := strings.SplitN(line, ">", 2)
+		attrs := strings.SplitN(command, ">", 2)
 		paths := strings.SplitN(attrs[0], "|", 2)
 		curr := Task{Cmd: strings.TrimSpace(paths[0]), Path: nil, Attr: nil}
 		if len(paths) > 1 {
@@ -85,11 +85,7 @@ func main() {
 			curr.Path = compiled
 		}
 		if len(attrs) > 1 {
-			split := strings.Split(attrs[1], ",")
-			curr.Attr = make([]string, 0, len(split))
-			for _, attr := range split {
-				curr.Attr = append(curr.Attr, strings.TrimSpace(attr))
-			}
+			curr.Attr = SplitNonEmpty(attrs[1], ",")
 		}
 		tasks = append(tasks, curr)
 	}

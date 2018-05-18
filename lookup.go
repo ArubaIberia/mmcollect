@@ -41,29 +41,27 @@ func (l Lookups) Lookup(data interface{}) (interface{}, error) {
 // NewLookup turns a chain of filters into a list of Lookups
 func NewLookup(chain string) (Lookups, error) {
 	result := make(Lookups, 0, 10)
-	for _, filter := range strings.Split(chain, "|") {
-		if f := strings.TrimSpace(filter); len(f) > 0 {
-			x := strings.Fields(f)
-			// "include" filter?
-			if len(x) > 0 && strings.HasPrefix("include", strings.ToLower(strings.TrimSpace(x[0]))) {
-				result = append(result, &includeLookup{text: getText(f)})
-				continue
-			}
-			// "begin" filter?
-			if len(x) > 0 && strings.HasPrefix("begin", strings.ToLower(strings.TrimSpace(x[0]))) {
-				result = append(result, &beginLookup{text: getText(f)})
-				continue
-			}
-			// jsonpath filter: add some syntactic sugar, "._[]" is added automagically.
-			if strings.HasPrefix(f, "?(") {
-				f = fmt.Sprintf("$._[%s]", f)
-			}
-			c, err := jsonpath.Compile(f)
-			if err != nil {
-				return nil, err
-			}
-			result = append(result, c)
+	for _, filter := range SplitNonEmpty(chain, "|") {
+		x := strings.Fields(filter)
+		// "include" filter?
+		if len(x) > 0 && strings.HasPrefix("include", strings.ToLower(strings.TrimSpace(x[0]))) {
+			result = append(result, &includeLookup{text: getText(filter)})
+			continue
 		}
+		// "begin" filter?
+		if len(x) > 0 && strings.HasPrefix("begin", strings.ToLower(strings.TrimSpace(x[0]))) {
+			result = append(result, &beginLookup{text: getText(filter)})
+			continue
+		}
+		// jsonpath filter: add some syntactic sugar, "._[]" is added automagically.
+		if strings.HasPrefix(filter, "?(") {
+			filter = fmt.Sprintf("$._[%s]", filter)
+		}
+		compiled, err := jsonpath.Compile(filter)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, compiled)
 	}
 	return result, nil
 }
@@ -188,4 +186,16 @@ func mapToString(data map[string]interface{}, attribs []string) ([]string, error
 		return nil, err
 	}
 	return strings.Split(string(out), "\n"), nil
+}
+
+// SplitNonEmpty splits a string and removes empty parts from the results
+func SplitNonEmpty(text, separator string) []string {
+	parts := strings.Split(text, separator)
+	items := make([]string, 0, len(parts))
+	for _, v := range parts {
+		if v := strings.TrimSpace(v); len(v) > 0 {
+			items = append(items, v)
+		}
+	}
+	return items
 }

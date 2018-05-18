@@ -1,17 +1,17 @@
-// mmcollect -u xxxx -h xxxx -s bug179415.js "show ip interface brief; show datapath session table"
+// mmcollect -u xxxx -h xxxx -s bug179415.js \
+//     "show ip interface brief | $._data | inc 'vlan ';" \
+//     "show datapath session table | $._data | inc 'nh 0x'"
+//
+// "data0" contiene el resultado de "show ip interface brief | $._data | include 'vlan '"
+// "data1" contiene el resultado de "show datapath session table | $._data | inc 'nh 0x'"
 
-// "data0" espera el resultado de "show ip interface brief"
-data0 = data0._data || data0;
-
-// Obtengo las direcciones IP de todas las interfaces de la controladora
+// Obtengo las direcciones IP de las interfaces
 var interfaces = _.reduce(data0, function (memo, line) {
-	if (line.indexOf("vlan ") >= 0) {
-		// El tercer campo de esta línea debería ser la dirección IP de la interfaz
-		var ip = line.match(/\S+/g)[2];
-		// Compruebo que parece una IP
-		if (/^[0-9\.]{7,}$/.test(ip)) {
-			memo.push(ip);
-		}
+	// El tercer campo de cada línea debería ser la dirección IP de una interfaz
+	var ip = line.match(/\S+/g)[2];
+	// Compruebo que parece una IP
+	if (/^[0-9\.]{7,}$/.test(ip)) {
+		memo.push(ip);
 	}
 	return memo;
 }, []);
@@ -25,25 +25,20 @@ function enRed(ip, redes) {
 	return _.some(redes, function(red) { return ip.indexOf(red) == 0; })
 }
 
-// "data1" espera el resultado de "show datapath session table"
-data1 = data1._data || data1;
-
-// Obtengo la lista de entradas e IPs afectadas por el problema en esta controladora
-users = {};
-corrupt = _.filter(data1, function(line) {
-	if (line.indexOf("nh 0x") > 0) {
-		// primer y segundo campo son IP origen y destino
-		var ips = line.match(/\S+/g).slice(0, 2);
-		// Es una entrada corrupta si el origen y el destino son redes locales
-		if (_.every(ips, function (ip) { return enRed(ip, redes); })) {
-			_.each(ips, function(ip) { users[ip] = 1; });
-			return true;
-		}
-		return false;
+// Obtengo la lista de entradas afectadas por el problema en esta controladora
+var users = {};
+var result = _.filter(data1, function(line) {
+	// primer y segundo campo son IP origen y destino
+	var ips = line.match(/\S+/g).slice(0, 2);
+	// Es una entrada corrupta si el origen y el destino son redes locales
+	if (_.every(ips, function (ip) { return enRed(ip, redes); })) {
+		_.each(ips, function(ip) { users[ip] = 1; });
+		return true;
 	}
+	return false;
 });
 
-// Manda el user delete a la controladora
-corrupt.concat(_.map(_.keys(users), function(ip) {
+// Manda el user delete a la controladora, y añade el resultado a la salida
+result.concat(_.map(_.keys(users), function(ip) {
 	return "SENT aaa_user_delete FOR " + ip + ": " + Post("/md", "object/aaa_user_delete", { "ipaddr": ip });
 }));

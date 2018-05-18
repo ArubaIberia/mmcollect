@@ -247,3 +247,34 @@ mmcollect -u admin -h your.mm.ip.address -p "$MYPASS" "show datapath session tab
 # Use a secret file
 mmcollect -u admin -h your.mm.ip.address -p `cat ~/.secret_pass` "show datapath session table"
 ```
+
+## Scripting
+
+mmcollect can run a script once per controller. Set the path of the script with the *-s <filename>* flag, and mmcollect will read the file and run it after it finishes collecting the data of each controller.
+
+The script must be valid JavaScript, and is parsed using the [otto](https://github.com/robertkrimen/otto) engine. The javascript code will have access to the following global variables and functions:
+
+- data0: the result of the first show command.
+- data1: the result if the second show command.
+- ...
+- data*N*: the result of the N-th show command.
+- Post: a function that can be used to send HTTP POST requests to the current controller.
+
+For instance, say you want to drop all users sending SMB traffic, using `aaa user delete`. You can look for port 445 in the output of the `show datapath session table` command, and POST a message to the controller to delete those users. Save this script as *aaa_user_delete.js*:
+
+```js
+// The script expects data0 to be the output of "show datapath session table | $._data | inc 445"
+_.each(data0, function(line) {
+  // The first field in the output of "show datapath session table" is the source IP.
+  // The API call to delete an IP address is "/configurations/object/aaa_user_delete;
+  // you can skip the "/configurations/", it is added by the `Post` function.
+  var source_ip = line.match(/\S+/g)[0];
+  Post("/mm", "object/aaa_user_delete", { "ipaddr": source_ip });
+})
+```
+
+And then run your collector with *-s aaa_user_delete.js*:
+
+```bash
+mmcollect -u admin -h your.mm.ip.address -s aaa_user_delete.js "show datapath session table | $._data | include 445"
+```
