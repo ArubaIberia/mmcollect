@@ -66,7 +66,8 @@ func (p *Pool) Push(username, pass string, switches []string, commands []Task) *
 		for _, curr := range switches {
 			curr := curr // for the closure below
 			p.queue <- func() Result {
-				data, err := p.run(curr, username, pass, commands)
+				controller := NewController(curr, username, pass, p.timeout, p.skipVerify)
+				data, err := p.run(controller, commands)
 				return Result{MD: curr, Data: data, Err: err}
 			}
 		}
@@ -80,12 +81,12 @@ func (p *Pool) Results() chan Result {
 }
 
 // run the required commands
-func (p *Pool) run(md, username, pass string, commands []Task) ([]string, error) {
-	controller, err := NewController(md, username, pass, p.timeout, p.skipVerify)
+func (p *Pool) run(controller *Controller, commands []Task) ([]string, error) {
+	session, err := controller.Session()
 	if err != nil {
 		return nil, err
 	}
-	defer controller.Logout()
+	defer session.Close()
 	results := make([]string, 0, len(commands))
 	first := true
 	for _, cmd := range commands {
@@ -95,11 +96,15 @@ func (p *Pool) run(md, username, pass string, commands []Task) ([]string, error)
 		} else if p.delay > 0 {
 			time.Sleep(p.delay)
 		}
-		curr, err := controller.Show(cmd.Cmd, cmd.Path, cmd.Attr)
+		curr, err := session.Show(cmd.Cmd, cmd.Path)
 		if err != nil {
 			return nil, err
 		}
-		results = append(results, curr...)
+		text, err := Select(curr, cmd.Attr)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, text...)
 	}
 	return results, nil
 }

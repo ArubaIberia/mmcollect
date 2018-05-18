@@ -14,10 +14,18 @@ import (
 
 // Controller manages login and logout of an MD
 type Controller struct {
-	client http.Client
-	url    string
-	token  string
-	reg    *regexp.Regexp
+	client   http.Client
+	url      string
+	username string
+	password string
+	md       string
+	reg      *regexp.Regexp
+}
+
+// Session encapsulates a session to the controller
+type Session struct {
+	controller *Controller
+	token      string
 }
 
 type loginResponse struct {
@@ -29,29 +37,36 @@ type loginResponse struct {
 }
 
 // NewController opens a session to a controller
-func NewController(md, username, pass string, timeout time.Duration, skipVerify bool) (*Controller, error) {
+func NewController(md, username, pass string, timeout time.Duration, skipVerify bool) *Controller {
 	// Non-alphanumeric characters will get replaced by "_" in names
 	reg, _ := regexp.Compile("[^a-zA-Z0-9]+")
-	result := &Controller{
+	return &Controller{
 		client: http.Client{
 			Timeout: timeout,
 			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{InsecureSkipVerify: skipVerify},
 			},
 		},
-		url: fmt.Sprintf("https://%s:4343/v1", md),
-		reg: reg,
+		url:      fmt.Sprintf("https://%s:4343/v1", md),
+		reg:      reg,
+		username: username,
+		password: pass,
+		md:       md,
 	}
-	apiURL, data := result.url+"/api/login", url.Values{}
-	data.Set("username", username)
-	data.Set("password", pass)
+}
+
+// Session creates a new session to the controller
+func (c *Controller) Session() (*Session, error) {
+	apiURL, data := c.url+"/api/login", url.Values{}
+	data.Set("username", c.username)
+	data.Set("password", c.password)
 	req, err := http.NewRequest(http.MethodPost, apiURL, strings.NewReader(data.Encode()))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Add("Accept", "application/json")
-	resp, err := result.client.Do(req)
+	resp, err := c.client.Do(req)
 	if resp != nil && resp.Body != nil {
 		defer resp.Body.Close()
 	}
@@ -59,24 +74,23 @@ func NewController(md, username, pass string, timeout time.Duration, skipVerify 
 		return nil, err
 	}
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("MD %s: Login incorrect (username %s)", md, username)
+		return nil, fmt.Errorf("MD %s: Login incorrect (username %s)", c.md, c.username)
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("MD %s: Could not read login response", md)
+		return nil, fmt.Errorf("MD %s: Could not read login response", c.md)
 	}
 	lr := loginResponse{}
 	if err := json.Unmarshal(body, &lr); err != nil {
-		return nil, fmt.Errorf("MD %s: Expected login response, got %s", md, string(body))
+		return nil, fmt.Errorf("MD %s: Expected login response, got %s", c.md, string(body))
 	}
-	result.token = lr.GlobalResult.UIDARUBA
-	return result, nil
+	return &Session{controller: c, token: lr.GlobalResult.UIDARUBA}, nil
 }
 
-// Logout closes the session.
-func (c *Controller) Logout() error {
-	apiURL := fmt.Sprintf("%s/api/logout?UIDARUBA=%s", c.url, c.token)
-	resp, err := c.client.Get(apiURL)
+// Close the session.
+func (s *Session) Close() error {
+	apiURL := fmt.Sprintf("%s/api/logout?UIDARUBA=%s", s.controller.url, s.token)
+	resp, err := s.controller.client.Get(apiURL)
 	if err != nil {
 		return err
 	}
@@ -87,15 +101,15 @@ func (c *Controller) Logout() error {
 }
 
 // Show runs a command on the controller, filters the output through the jsonpath expression, and gets the requested attribs
-func (c *Controller) Show(cmd string, path Lookup, attribs []string) ([]string, error) {
+func (s *Session) Show(cmd string, path Lookup) (interface{}, error) {
 	apiURL := fmt.Sprintf("%s/configuration/showcommand?command=%s&json=1&UIDARUBA=%s",
-		c.url, url.QueryEscape(cmd), c.token)
+		s.controller.url, url.QueryEscape(cmd), s.token)
 	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Cookie", fmt.Sprintf("SESSION=%s", c.token))
-	resp, err := c.client.Do(req)
+	req.Header.Add("Cookie", fmt.Sprintf("SESSION=%s", s.token))
+	resp, err := s.controller.client.Do(req)
 	if resp != nil && resp.Body != nil {
 		defer resp.Body.Close()
 	}
@@ -110,7 +124,7 @@ func (c *Controller) Show(cmd string, path Lookup, attribs []string) ([]string, 
 	if err := dec.Decode(&data); err != nil {
 		return nil, err
 	}
-	data = noWhitespace(data, c.reg)
+	data = noWhitespace(data, s.controller.reg)
 	if path != nil {
 		lookup, err := path.Lookup(data)
 		if err != nil {
@@ -118,7 +132,7 @@ func (c *Controller) Show(cmd string, path Lookup, attribs []string) ([]string, 
 		}
 		data = lookup
 	}
-	return Select(data, attribs)
+	return data, nil
 }
 
 // Switches lists the IP addresses of the switches that comply with the given jsonpath filters
@@ -132,17 +146,16 @@ func (c *Controller) Switches(filter Lookup) ([]string, error) {
 	if filter != nil {
 		path = append(path, filter)
 	}
-	return c.Show("show switches", path, []string{"IP_Address"})
-}
-
-// Switches asks the MM for its MDs
-func Switches(md, username, pass string, filter Lookup, timeout time.Duration, skipVerify bool) ([]string, error) {
-	controller, err := NewController(md, username, pass, timeout, skipVerify)
+	session, err := c.Session()
 	if err != nil {
 		return nil, err
 	}
-	defer controller.Logout()
-	return controller.Switches(filter)
+	defer session.Close()
+	data, err := session.Show("show switches", path)
+	if err != nil {
+		return nil, err
+	}
+	return Select(data, []string{"IP_Address"})
 }
 
 // noWhitespace removes non-alphanumeric characters from keys

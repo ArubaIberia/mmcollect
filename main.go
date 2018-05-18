@@ -119,7 +119,7 @@ func main() {
 		}
 		filter = compiled
 	}
-	switches, err := Switches(*optMD, *optUsername, pass, filter, timeout, !(*optVerify))
+	switches, err := NewController(*optMD, *optUsername, pass, timeout, !(*optVerify)).Switches(filter)
 	if err != nil {
 		log.Fatal(err)
 	}
