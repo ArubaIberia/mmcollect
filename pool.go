@@ -15,7 +15,7 @@ type Task struct {
 // Result is the result of running one or more commands in a controller
 type Result struct {
 	MD   string
-	Data []string
+	Data []interface{}
 	Err  error
 }
 
@@ -30,6 +30,7 @@ type Pool struct {
 	timeout    time.Duration
 	delay      time.Duration
 	skipVerify bool
+	script     *Script
 }
 
 // NewPool returns a new Task Pool
@@ -55,7 +56,7 @@ func NewPool(tasks int, delay, timeout time.Duration, skipVerify bool) *Pool {
 }
 
 // Push adds the tasks to the pool
-func (p *Pool) Push(username, pass string, switches []string, commands []Task) *Pool {
+func (p *Pool) Push(username, pass string, switches []string, commands []Task, script Script) *Pool {
 	go func() {
 		defer func() {
 			close(p.queue)
@@ -67,7 +68,7 @@ func (p *Pool) Push(username, pass string, switches []string, commands []Task) *
 			curr := curr // for the closure below
 			p.queue <- func() Result {
 				controller := NewController(curr, username, pass, p.timeout, p.skipVerify)
-				data, err := p.run(controller, commands)
+				data, err := p.run(controller, commands, script)
 				return Result{MD: curr, Data: data, Err: err}
 			}
 		}
@@ -81,14 +82,15 @@ func (p *Pool) Results() chan Result {
 }
 
 // run the required commands
-func (p *Pool) run(controller *Controller, commands []Task) ([]string, error) {
+func (p *Pool) run(controller *Controller, commands []Task, script Script) ([]interface{}, error) {
 	session, err := controller.Session()
 	if err != nil {
 		return nil, err
 	}
 	defer session.Close()
-	results := make([]string, 0, len(commands))
+	result := make([]interface{}, 0, len(commands))
 	first := true
+	// Get data
 	for _, cmd := range commands {
 		// add delay, if requested
 		if first {
@@ -100,11 +102,21 @@ func (p *Pool) run(controller *Controller, commands []Task) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		text, err := Select(curr, cmd.Attr)
+		if cmd.Attr != nil && len(cmd.Attr) > 0 {
+			selected, err := Select(curr, cmd.Attr)
+			if err != nil {
+				return nil, err
+			}
+			curr = selected
+		}
+		result = append(result, curr)
+	}
+	if script != nil {
+		post, err := script.Run(session, result)
 		if err != nil {
 			return nil, err
 		}
-		results = append(results, text...)
+		result = []interface{}{post}
 	}
-	return results, nil
+	return result, nil
 }

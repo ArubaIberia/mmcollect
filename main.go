@@ -34,6 +34,7 @@ func main() {
 	optVerify := flag.Bool("v", false, "Verify MD HTTPS certificate")
 	optPassword := flag.String("p", "", "Login password")
 	optDelay := flag.Int("d", DefaultDelay, "Delay between commands (seconds)")
+	optScript := flag.String("s", "", "Path of script file to run for each controller")
 
 	// Parse input
 	flag.Parse()
@@ -107,6 +108,16 @@ func main() {
 		fmt.Println("")
 	}
 
+	// Get the script
+	var script Script
+	if optScript != nil && *optScript != "" {
+		scriptFile, err := NewScript(*optScript, nil)
+		if err != nil {
+			log.Fatal("Could not load script ", *optScript, ":", err)
+		}
+		script = scriptFile
+	}
+
 	// Get MD switches
 	log.Print("Getting the switch list")
 	timeout := time.Second * time.Duration(*optTimeout)
@@ -137,7 +148,7 @@ func main() {
 		*optTasks = len(switches)
 	}
 	pool := NewPool(*optTasks, delay, timeout, !(*optVerify))
-	pool.Push(*optUsername, pass, switches, tasks)
+	pool.Push(*optUsername, pass, switches, tasks, script)
 	log.Print("Waiting for workers to complete!")
 	for r := range pool.Results() {
 		var err error
@@ -148,6 +159,7 @@ func main() {
 			if optOutput != nil && *optOutput != "" {
 				fname = fmt.Sprintf("%s%s.log", *optOutput, r.MD)
 			}
+			// Turn to string
 			err = writeLines(fname, r.Data, "*** Controller", r.MD, "[", fname, "]")
 		}
 		if err != nil {
@@ -157,9 +169,12 @@ func main() {
 }
 
 // writeLines dumps the array to the given file, or stdout
-func writeLines(fname string, lines []string, header ...interface{}) error {
+func writeLines(fname string, data []interface{}, header ...interface{}) error {
+	lines, err := Select(data, nil)
+	if err != nil {
+		return err
+	}
 	var w io.WriteCloser
-	var err error
 	if fname == "" {
 		w = os.Stdout
 	} else {

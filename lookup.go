@@ -153,20 +153,9 @@ func Select(data interface{}, attribs []string) ([]string, error) {
 
 // turns a map into an array of strings
 func mapToString(data map[string]interface{}, attribs []string) ([]string, error) {
-	// Special case for a lot of stuff that gets returned in "data" attribute
-	if plain, ok := data["data"]; len(data) == 1 && ok {
-		if items, ok := plain.([]interface{}); ok {
-			// Turn the []interface{} into []string
-			result := make([]string, 0, len(items))
-			for _, line := range items {
-				result = append(result, line.(string))
-			}
-			// If it only has one line, tipically we need to split it
-			if len(result) == 1 {
-				return strings.Split(result[0], "\n"), nil
-			}
-			return result, nil
-		}
+	// Special case for arrays wrapped in objects
+	if plain, ok := data["_"]; len(data) == 1 && ok {
+		return Select(plain, attribs)
 	}
 	// Other objects, try to turn into CSV if attrs != nil
 	if attribs != nil && len(attribs) >= 0 {
