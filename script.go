@@ -1,8 +1,8 @@
 package main
 
 import (
+	"errors"
 	"fmt"
-	"sync"
 
 	"github.com/robertkrimen/otto"
 	_ "github.com/robertkrimen/otto/underscore"
@@ -14,44 +14,43 @@ type Script interface {
 }
 
 type script struct {
-	vm     *otto.Otto
+	vms    []*otto.Otto
 	script *otto.Script
-	mutex  sync.Mutex
+	sem    chan int
 }
 
 // NewScript returns a bundle of VM + script
-func NewScript(filename string, src interface{}) (Script, error) {
-	result := script{vm: otto.New()}
-	s, err := result.vm.Compile(filename, src)
+func NewScript(filename string, src interface{}, copies int) (Script, error) {
+	if copies < 1 {
+		copies = 1
+	}
+	sem := make(chan int, copies)
+	vm, vms := otto.New(), make([]*otto.Otto, 1, copies)
+	vms[0] = vm
+	sem <- 0
+	s, err := vm.Compile(filename, src)
 	if err != nil {
 		return nil, err
 	}
-	result.script = s
-	return &result, nil
+	for i := 1; i < copies; i++ {
+		vms = append(vms, vm.Copy())
+		sem <- i
+	}
+	return &script{vms: vms, script: s, sem: sem}, nil
 }
 
 // Run the script with a given controller and set of data
 func (s *script) Run(session *Session, data []interface{}) (interface{}, error) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	free := <-s.sem
+	defer func() { s.sem <- free }()
+	vm := s.vms[free]
 	// Post(cfgpath, api, data) exported to javascript
-	s.vm.Set("Post", func(call otto.FunctionCall) otto.Value {
-		cfgPath := call.Argument(0).String()
-		api := call.Argument(1).String()
-		data, err := call.Argument(2).Export()
-		if err == nil {
-			if err = session.Post(cfgPath, api, data); err == nil {
-				return otto.NullValue()
-			}
-		}
-		val, _ := s.vm.ToValue(err.Error())
-		return val
-	})
+	vm.Set("Post", s.jsPost(vm, session))
 	// "data0", "data1", "data2"... are the output of commands
 	for i, d := range data {
-		s.vm.Set(fmt.Sprintf("data%d", i), d)
+		vm.Set(fmt.Sprintf("data%d", i), d)
 	}
-	value, err := s.vm.Run(s.script)
+	value, err := vm.Run(s.script)
 	if err != nil {
 		return nil, err
 	}
@@ -60,4 +59,35 @@ func (s *script) Run(session *Session, data []interface{}) (interface{}, error) 
 		return nil, err
 	}
 	return native, nil
+}
+
+// jsPost makes a closure for sending POST request to the session
+func (s *script) jsPost(vm *otto.Otto, session *Session) func(otto.FunctionCall) otto.Value {
+	return func(call otto.FunctionCall) otto.Value {
+		args := call.ArgumentList
+		if len(args) < 3 {
+			return ottoErr(errors.New("Too few arguments. Must provide (config_path, api_endpoint, data)"))
+		}
+		if !args[0].IsString() {
+			return ottoErr(errors.New("First argument must be config path (e.g. \"/mm\""))
+		}
+		cfgPath := call.Argument(0).String()
+		if !args[1].IsString() {
+			return ottoErr(errors.New("Second argument must be config path (e.g. \"/mm\""))
+		}
+		endpoint := call.Argument(1).String()
+		data, err := call.Argument(2).Export()
+		if err != nil {
+			return ottoErr(err)
+		}
+		if err := session.Post(cfgPath, endpoint, data); err != nil {
+			return ottoErr(err)
+		}
+		return otto.NullValue()
+	}
+}
+
+func ottoErr(err error) otto.Value {
+	val, _ := otto.ToValue(err.Error())
+	return val
 }

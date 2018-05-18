@@ -20,7 +20,7 @@ type Lookups []Lookup
 // Lookup implements interface Lookup
 func (l Lookups) Lookup(data interface{}) (interface{}, error) {
 	for _, lookup := range l {
-		// Workaround for the jsonpath library to filter top-level arrays...
+		// Workaround for the jsonpath library to filter top-level arrays.
 		// if the data is a top-level array, replace with an object with a single property, "_".
 		// So your filters, instead of "$[...]" must be written "$._[...]"
 		switch test := data.(type) {
@@ -43,18 +43,18 @@ func NewLookup(chain string) (Lookups, error) {
 	result := make(Lookups, 0, 10)
 	for _, filter := range strings.Split(chain, "|") {
 		if f := strings.TrimSpace(filter); len(f) > 0 {
-			// If the first word looks like "include", behave as a line filter
 			x := strings.Fields(f)
+			// "include" filter?
 			if len(x) > 0 && strings.HasPrefix("include", strings.ToLower(strings.TrimSpace(x[0]))) {
 				result = append(result, &includeLookup{text: getText(f)})
 				continue
 			}
+			// "begin" filter?
 			if len(x) > 0 && strings.HasPrefix("begin", strings.ToLower(strings.TrimSpace(x[0]))) {
 				result = append(result, &beginLookup{text: getText(f)})
 				continue
 			}
-			// Syntactic sugar: if it looks like a filter,
-			// wrap it inside $._[]
+			// jsonpath filter: add some syntactic sugar, "._[]" is added automagically.
 			if strings.HasPrefix(f, "?(") {
 				f = fmt.Sprintf("$._[%s]", f)
 			}
@@ -76,7 +76,7 @@ type beginLookup struct {
 	text string
 }
 
-// Skips the "include" or "begin" keyword
+// Skips the keyword ("include", "begin", etc) in a filter, and removes quotes
 func getText(filter string) string {
 	parts := strings.SplitN(filter, " ", 2)
 	text := ""
@@ -120,7 +120,7 @@ func (l *beginLookup) Lookup(data interface{}) (interface{}, error) {
 	return result, nil
 }
 
-// Select turns the response into an array of lines
+// Select turns the data into an array of lines
 func Select(data interface{}, attribs []string) ([]string, error) {
 	var result []string
 	switch data := data.(type) {
@@ -145,7 +145,7 @@ func Select(data interface{}, attribs []string) ([]string, error) {
 			return nil, err
 		}
 		result = text
-	default:
+	default: // I only expect numerics or booleans to arrive here
 		result = []string{fmt.Sprintf("%v", data)}
 	}
 	return result, nil

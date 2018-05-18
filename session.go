@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// Controller manages login and logout of an MD
+// Controller spawns sessions to a Managed Device
 type Controller struct {
 	client   http.Client
 	url      string
@@ -23,7 +23,7 @@ type Controller struct {
 	reg      *regexp.Regexp
 }
 
-// Session encapsulates a session to the controller
+// Session encapsulates a session to the Managed Device
 type Session struct {
 	controller *Controller
 	token      string
@@ -56,9 +56,9 @@ func NewController(md, username, pass string, timeout time.Duration, skipVerify 
 	}
 }
 
-// Session creates a new session to the controller
+// Session opens a new session to the controller
 func (c *Controller) Session() (*Session, error) {
-	apiURL, data := c.url+"/api/login", url.Values{}
+	apiURL, data := fmt.Sprintf("%s/api/login", c.url), url.Values{}
 	data.Set("username", c.username)
 	data.Set("password", c.password)
 	req, err := http.NewRequest(http.MethodPost, apiURL, strings.NewReader(data.Encode()))
@@ -154,7 +154,7 @@ func (s *Session) Post(cfgpath, api string, data interface{}) error {
 	return nil
 }
 
-// Show runs a command on the controller, filters the output through the jsonpath expression, and gets the requested attribs
+// Show runs a command on the controller, filtered through the Lookup
 func (s *Session) Show(cmd string, path Lookup) (interface{}, error) {
 	apiURL, err := s.apiURL("showcommand", map[string]string{"command": cmd})
 	if err != nil {
@@ -165,6 +165,7 @@ func (s *Session) Show(cmd string, path Lookup) (interface{}, error) {
 		return nil, err
 	}
 	req.Header.Add("Cookie", fmt.Sprintf("SESSION=%s", s.token))
+	req.Header.Add("Accept", "application/json")
 	resp, err := s.controller.client.Do(req)
 	if resp != nil && resp.Body != nil {
 		defer resp.Body.Close()
@@ -191,7 +192,7 @@ func (s *Session) Show(cmd string, path Lookup) (interface{}, error) {
 	return data, nil
 }
 
-// Switches lists the IP addresses of the switches that comply with the given jsonpath filters
+// Switches lists the IP addresses of the switches that comply with the given filter
 // e.g. Switches("?(@.State=='up')") return switches up
 func (c *Controller) Switches(filter Lookup) ([]string, error) {
 	// Prefilter, always on:
@@ -221,10 +222,7 @@ func noWhitespace(data interface{}, reg *regexp.Regexp) interface{} {
 		norm := make(map[string]interface{})
 		for k, v := range data {
 			k = reg.ReplaceAllString(k, "_")
-			// Remove also heading and trailing underscores
-			for strings.HasPrefix(k, "_") {
-				k = k[1:]
-			}
+			// Remove also trailing underscores
 			for strings.HasSuffix(k, "_") {
 				k = k[:len(k)-1]
 			}
@@ -232,11 +230,12 @@ func noWhitespace(data interface{}, reg *regexp.Regexp) interface{} {
 		}
 		return norm
 	case []interface{}:
-		norm := make([]interface{}, 0, len(data))
-		for _, v := range data {
-			norm = append(norm, noWhitespace(v, reg))
+		for i, v := range data {
+			data[i] = noWhitespace(v, reg)
 		}
-		return norm
+		// This "data" here is the typed one! it is masked
+		// because of the type switch.
+		return data
 	}
 	return data
 }

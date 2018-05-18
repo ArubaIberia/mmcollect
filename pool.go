@@ -19,61 +19,50 @@ type Result struct {
 	Err  error
 }
 
-// Worker is a function capable of running a task in a controller
-type Worker func() Result
-
 // Pool of worker gophers running commands in controllers
 type Pool struct {
-	queue      chan Worker
 	results    chan Result
 	wg         sync.WaitGroup
 	timeout    time.Duration
 	delay      time.Duration
+	sem        chan bool
 	skipVerify bool
-	script     *Script
 }
 
 // NewPool returns a new Task Pool
 func NewPool(tasks int, delay, timeout time.Duration, skipVerify bool) *Pool {
 	p := &Pool{
-		queue:      make(chan Worker),
-		results:    make(chan Result),
 		delay:      delay,
 		timeout:    timeout,
 		skipVerify: skipVerify,
-	}
-	for tasks > 0 {
-		p.wg.Add(1)
-		tasks--
-		go func() {
-			for t := range p.queue {
-				p.results <- t()
-			}
-			p.wg.Done()
-		}()
+		results:    make(chan Result, tasks),
+		sem:        make(chan bool, tasks),
 	}
 	return p
 }
 
 // Push adds the tasks to the pool
-func (p *Pool) Push(username, pass string, switches []string, commands []Task, script Script) *Pool {
+func (p *Pool) Push(md, username, pass string, commands []Task, script Script) {
+	// Leave notice a new thread is running
+	p.wg.Add(1)
 	go func() {
-		defer func() {
-			close(p.queue)
-			p.wg.Wait()
-			close(p.results)
-		}()
+		defer p.wg.Done()
+		// Concurrency limit
+		p.sem <- true
+		defer func() { _ = <-p.sem }()
 		// Iterate on the switches, delivering tasks to the queue
-		for _, curr := range switches {
-			curr := curr // for the closure below
-			p.queue <- func() Result {
-				controller := NewController(curr, username, pass, p.timeout, p.skipVerify)
-				data, err := p.run(controller, commands, script)
-				return Result{MD: curr, Data: data, Err: err}
-			}
-		}
+		controller := NewController(md, username, pass, p.timeout, p.skipVerify)
+		data, err := p.run(controller, commands, script)
+		p.results <- Result{MD: md, Data: data, Err: err}
 	}()
-	return p
+}
+
+// Close tells the pool no more tasks will be pushed
+func (p *Pool) Close() {
+	go func() {
+		p.wg.Wait()
+		close(p.results)
+	}()
 }
 
 // Results returns a channel where results are streamed

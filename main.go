@@ -111,7 +111,11 @@ func main() {
 	// Get the script
 	var script Script
 	if optScript != nil && *optScript != "" {
-		scriptFile, err := NewScript(*optScript, nil)
+		copies := (*optTasks) / 10
+		if optLimit != nil && *optLimit < copies {
+			copies = *optLimit
+		}
+		scriptFile, err := NewScript(*optScript, nil, copies)
 		if err != nil {
 			log.Fatal("Could not load script ", *optScript, ":", err)
 		}
@@ -134,6 +138,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// Limit the switches
 	if optLimit != nil && *optLimit != 0 && len(switches) > 0 {
 		r := rand.New(rand.NewSource(time.Now().UnixNano()))
 		r.Shuffle(len(switches), func(i, j int) {
@@ -143,13 +149,18 @@ func main() {
 	}
 	log.Println("Switch list collected, working on a set of ", len(switches))
 
-	// Run the pool
+	// Feed the pool
 	if *optTasks > len(switches) {
 		*optTasks = len(switches)
 	}
 	pool := NewPool(*optTasks, delay, timeout, !(*optVerify))
-	pool.Push(*optUsername, pass, switches, tasks, script)
+	for _, md := range switches {
+		pool.Push(md, *optUsername, pass, tasks, script)
+	}
+	pool.Close()
 	log.Print("Waiting for workers to complete!")
+
+	// Print results
 	for r := range pool.Results() {
 		var err error
 		if r.Err != nil {
