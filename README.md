@@ -91,6 +91,20 @@ CONTROLLER  x.x.x.x
 }
 ```
 
+Operators supported (referenced from github.com/jayway/JsonPath):
+
+| Operator | Supported | Description |
+| ---- | :---: | ---------- |
+| $ 					  | Y | The root element to query. This starts all path expressions. |
+| @ 				      | Y | The current node being processed by a filter predicate. |
+| * 					  | X | Wildcard. Available anywhere a name or numeric are required. |
+| .. 					  | X | Deep scan. Available anywhere a name is required. |
+| .<name> 				  | Y | Dot-notated child |
+| ['<name>' (, '<name>')] | X | Bracket-notated child or children |
+| [<number> (, <number>)] | Y | Array index or indexes |
+| [start:end] 			  | Y | Array slice operator |
+| [?(<expression>)] 	  | Y | Filter expression. Expression must evaluate to a boolean value. |
+
 ### Concatenating filters
 
 You can concatenate several filters, separated by pipes. The output of one filter is fed into the next one. **If the output of some filter is an array, you must skip the "$[ ]" part in the next filter**. I.e. **Instead of**:
@@ -117,24 +131,7 @@ mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_l
 You can also use plain ol' **include** or **begin** keywords to filter strings or arrays of strings. If the output of one filter is a string or list of strings, the next filter can be an *include* or *begin*:
 
 ```bash
-mmcollect -u admin -h your.mm.ip.address "show datapath session table | $.data[0] | inc 10.1.2.3"
-```
-
-It is very common for the REST API to return strings wrapped inside an object with a single field, *data*. So as a convenience, *include* and *begin* filters will automatically recognize this wrapped data and do the right thing. I.e. these expressions do the same:
-
-```bash
-# Explicitly turning the result into an array of strings
-mmcollect -u admin -h your.mm.ip.address "show datapath session table | $.data[0] | inc 10.1.2.3"
-# Letting 'include' do the unwrapping
-mmcollect -u admin -h your.mm.ip.address "show datapath session table | include 10.1.2.3"
-```
-
-## Running several threads in parallel
-
-Just add the *-t threads* option to the command line to set the number of parallel jobs. By default, it is 25.
-
-```bash
-mmcollect -h your.mm.ip.address -u username -t 50 "show ip interface brief; show user-table verbose"
+mmcollect -u admin -h your.mm.ip.address "show datapath session table | $._data | inc 10.1.2.3"
 ```
 
 ## Selecting the controllers to collect data
@@ -156,26 +153,12 @@ mmcollect -h your.mm.ip.address -u username -f "?(@.Configuration_State == 'UPDA
 
 Notice from the last example above how mmcollect replaces whitespace and other non-alphanumeric characters with underscores ('_') in attribute names, to workaround some problems with that kind of attributes in jsonpath expressions.
 
-You can specify several filter criteria, separated by pipes (**"|"**), for example:
+You can also specify several filter criteria separated by pipes, as usual:
 
 ```bash
 # Run the commands on Aruba 7010 controllers with status "UPDATE SUCCESSFUL":
 mmcollect -h your.mm.ip.address -u username -f "?(@.Model == 'Aruba7010') | ?(@.Configuration_State == 'UPDATE SUCCESSFUL')" "show version"
 ```
-
-Operators supported (referenced from github.com/jayway/JsonPath):
-
-| Operator | Supported | Description |
-| ---- | :---: | ---------- |
-| $ 					  | Y | The root element to query. This starts all path expressions. |
-| @ 				      | Y | The current node being processed by a filter predicate. |
-| * 					  | X | Wildcard. Available anywhere a name or numeric are required. |
-| .. 					  | X | Deep scan. Available anywhere a name is required. |
-| .<name> 				  | Y | Dot-notated child |
-| ['<name>' (, '<name>')] | X | Bracket-notated child or children |
-| [<number> (, <number>)] | Y | Array index or indexes |
-| [start:end] 			  | Y | Array slice operator |
-| [?(<expression>)] 	  | Y | Filter expression. Expression must evaluate to a boolean value. |
 
 ## Field selectors
 
@@ -209,6 +192,14 @@ Each command can have its own set of filters and field selectors.
 
 ```bash
 mmcollect -h your.mm.ip.address -u username "show ip interface brief | inc vlan; show user-table verbose"
+```
+
+## Running several threads in parallel
+
+Just add the *-t threads* option to the command line to set the number of parallel jobs. By default, it is 25.
+
+```bash
+mmcollect -h your.mm.ip.address -u username -t 50 "show ip interface brief; show user-table verbose"
 ```
 
 ## Delay between commands
