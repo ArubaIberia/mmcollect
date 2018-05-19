@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log"
+	"strings"
 
 	"github.com/robertkrimen/otto"
 	_ "github.com/robertkrimen/otto/underscore"
@@ -26,6 +28,7 @@ func NewScript(filename string, src interface{}, copies int) (Script, error) {
 	}
 	sem := make(chan int, copies)
 	vm, vms := otto.New(), make([]*otto.Otto, 1, copies)
+	vm.Set("console", map[string]interface{}{"log": jsLog})
 	vms[0] = vm
 	sem <- 0
 	s, err := vm.Compile(filename, src)
@@ -45,11 +48,10 @@ func (s *script) Run(session *Session, data []interface{}) (interface{}, error) 
 	defer func() { s.sem <- free }()
 	vm := s.vms[free]
 	// Post(cfgpath, api, data) exported to javascript
-	vm.Set("Post", s.jsPost(vm, session))
-	// "data0", "data1", "data2"... are the output of commands
-	for i, d := range data {
-		vm.Set(fmt.Sprintf("data%d", i), d)
-	}
+	vm.Set("session", map[string]interface{}{
+		"post": s.jsPost(vm, session),
+	})
+	vm.Set("data", data)
 	value, err := vm.Run(s.script)
 	if err != nil {
 		return nil, err
@@ -90,4 +92,13 @@ func (s *script) jsPost(vm *otto.Otto, session *Session) func(otto.FunctionCall)
 func ottoErr(err error) otto.Value {
 	val, _ := otto.ToValue(err.Error())
 	return val
+}
+
+func jsLog(call otto.FunctionCall) otto.Value {
+	output := []string{}
+	for _, argument := range call.ArgumentList {
+		output = append(output, fmt.Sprintf("%v", argument))
+	}
+	log.Println(strings.Join(output, " "))
+	return otto.UndefinedValue()
 }

@@ -130,7 +130,7 @@ mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_l
 
 ### Plain text filters
 
-You can also use plain ol' **include** or **begin** keywords to filter strings or arrays of strings. If the output of one filter is a string or list of strings, the next filter can be an *include* or *begin*:
+You can also use plain old **include** or **begin** keywords to filter strings or arrays of strings. If the output of one filter is a string or list of strings, the next filter can be an *include* or *begin*:
 
 ```bash
 mmcollect -u admin -h your.mm.ip.address "show datapath session table | $._data | inc 10.1.2.3"
@@ -162,7 +162,7 @@ mmcollect -h your.mm.ip.address -u username -f "?(@.Model == 'Aruba7010') | ?(@.
 
 ## Field selectors
 
-Sometimes you don't want the full JSON object returned by the controller, but just a few fields. MMcollect lets you combine filtering with **sttribute selection**, usign the **>** sign after the command or filter. Name the fields you want extracted, separated by commas:
+Sometimes you don't want the full JSON object returned by the controller, but just a few fields. MMcollect lets you combine filtering with **field selection**, usign the **>** sign after the command or filter. Name the fields you want extracted, separated by commas:
 
 ```bash
 mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_list_table_4_IPv4_6_IPv6[?(@.Type == 'session(4)')] > Name, Type"
@@ -213,7 +213,7 @@ mmcollect -u admin -h your.mm.ip.address -d 5 "show datapath session table | $.d
 
 ## Saving output to files
 
-Finally, you can tell mmconnect to save the output of each controller to a separate file with the *-o <prefix>* flag. Each controller will get its outout saved to a separate file, named after the controller's IP address.
+You can tell mmconnect to save the output of each controller to a separate file with the *-o <prefix>* flag. Each controller will get its output saved to a separate file, named after the controller's IP address.
 
 For instance, if you want to same all the logs into folder *logs* with names *switch-<IP.address.of.controller>.log*, give mmcollect the prefix *-t logs/switch-*:
 
@@ -245,22 +245,21 @@ mmcollect can run a script once per controller. Set the path of the script with 
 
 The script must be valid JavaScript, and is parsed using the [otto](https://github.com/robertkrimen/otto) engine. The javascript code will have access to the following global variables and functions:
 
-- data0: the result of the first show command.
-- data1: the result if the second show command.
-- ...
-- data*N*: the result of the N-th show command.
-- Post: a function that can be used to send HTTP POST requests to the current controller.
+- data: An array with the output of each command: data[0] is the result of the first `show` command, data[1] is the result of the second, and so on.
+- session: A session object that lets the script interact with the controller. Corrently supports:
 
-For instance, say you want to drop all users sending SMB traffic, using `aaa user delete`. You can look for port 445 in the output of the `show datapath session table` command, and POST a message to the controller to delete those users. Save this script as *aaa_user_delete.js*:
+  - post(cfg_path, api_endpoint, data): Send HTTP POST requests to the controller.
+
+For instance, say you want to drop all users sending SMB traffic, using `aaa user delete`. You can look for port 445 in the output of the `show datapath session table`, and POST a message to the controller to delete those users. Save this script as *aaa_user_delete.js*:
 
 ```js
 // The script expects data0 to be the output of "show datapath session table | $._data | inc 445"
-_.each(data0, function(line) {
+_.each(data[0], function(line) {
   // The first field in the output of "show datapath session table" is the source IP.
   // The API call to delete an IP address is "/configurations/object/aaa_user_delete;
   // you can skip the "/configurations/", it is added by the `Post` function.
   var source_ip = line.match(/\S+/g)[0];
-  Post("/mm", "object/aaa_user_delete", { "ipaddr": source_ip });
+  session.post("/mm", "object/aaa_user_delete", { "ipaddr": source_ip });
 })
 ```
 

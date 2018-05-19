@@ -46,7 +46,7 @@ func main() {
 		errString = "Missing user name (-u)"
 	}
 	if errString != "" {
-		fmt.Println("ERROR: ", errString)
+		log.Println("ERROR: ", errString)
 		flag.Usage()
 		os.Exit(-1)
 	}
@@ -95,13 +95,13 @@ func main() {
 	if optPassword != nil && len(*optPassword) > 0 {
 		pass = *optPassword
 	} else {
-		fmt.Print("Password: ")
+		fmt.Fprint(os.Stderr, "Password: ")
 		passBytes, err := terminal.ReadPassword(int(os.Stdin.Fd()))
 		if err != nil {
 			log.Fatal(err)
 		}
 		pass = string(passBytes)
-		fmt.Println("")
+		fmt.Fprintln(os.Stderr, "")
 	}
 
 	// Get the script
@@ -119,7 +119,7 @@ func main() {
 	}
 
 	// Get MD switches
-	log.Print("Getting the switch list")
+	log.Println("Getting the switch list")
 	timeout := time.Second * time.Duration(*optTimeout)
 	delay := time.Second * time.Duration(*optDelay)
 	var filter Lookup
@@ -154,7 +154,7 @@ func main() {
 		pool.Push(md, *optUsername, pass, tasks, script)
 	}
 	pool.Close()
-	log.Print("Waiting for workers to complete!")
+	log.Println("Waiting for workers to complete!")
 
 	// Print results
 	for r := range pool.Results() {
@@ -166,11 +166,10 @@ func main() {
 			if optOutput != nil && *optOutput != "" {
 				fname = fmt.Sprintf("%s%s.log", *optOutput, r.MD)
 			}
-			// Turn to string
 			err = writeLines(fname, r.Data, "*** Controller", r.MD, "[", fname, "]")
 		}
 		if err != nil {
-			fmt.Println("**Error: Running against MD", r.MD, ",", err)
+			log.Println("**Error: Running against MD", r.MD, ",", err)
 		}
 	}
 }
