@@ -75,7 +75,7 @@ func (s *script) jsPost(vm *otto.Otto, session *Session) func(otto.FunctionCall)
 		}
 		cfgPath := call.Argument(0).String()
 		if !args[1].IsString() {
-			return ottoErr(errors.New("Second argument must be config path (e.g. \"/mm\""))
+			return ottoErr(errors.New("Second argument must be api endpoint (e.g. \"/object/aaa_user_delete\""))
 		}
 		endpoint := call.Argument(1).String()
 		data, err := call.Argument(2).Export()
