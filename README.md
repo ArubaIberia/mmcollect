@@ -245,10 +245,13 @@ mmcollect can run a script once per controller. Set the path of the script with 
 
 The script must be valid JavaScript, and is parsed using the [otto](https://github.com/robertkrimen/otto) engine. The javascript code will have access to the following global variables and functions:
 
-- data: An array with the output of each command: data[0] is the result of the first `show` command, data[1] is the result of the second, and so on.
-- session: A session object that lets the script interact with the controller. Corrently supports:
+- `data: Array`: An array with the output of each command: data[0] is the result of the first `show` command, data[1] is the result of the second, and so on.
+- `getenv(name: string)`: A function to get environment variables by name.
+- `session: Object`: A session object that lets the script interact with the controller. It currently supports:
 
-  - post(cfg_path, api_endpoint, data): Send HTTP POST requests to the controller.
+  - `date: string`: The date of the session, in `YYYYMMdd` format.
+  - `ip: string`: The IP address of the controller (read-only).
+  - `post(cfg_path: string, api_endpoint: string, data: object)`: Send HTTP POST requests to the controller. Returns `null` on success, an error object otherwise.
 
 For instance, say you want to drop all users sending SMB traffic, using `aaa user delete`. You can look for port 445 in the output of the `show datapath session table`, and POST a message to the controller to delete those users. Save this script as *aaa_user_delete.js*:
 

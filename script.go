@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/robertkrimen/otto"
 	_ "github.com/robertkrimen/otto/underscore"
@@ -28,6 +30,7 @@ func NewScript(filename string, src interface{}, copies int) (Script, error) {
 	}
 	sem := make(chan int, copies)
 	vm, vms := otto.New(), make([]*otto.Otto, 1, copies)
+	vm.Set("getenv", jsEnv)
 	vm.Set("console", map[string]interface{}{"log": jsLog})
 	vms[0] = vm
 	sem <- 0
@@ -50,6 +53,8 @@ func (s *script) Run(session *Session, data []interface{}) (interface{}, error) 
 	// Post(cfgpath, api, data) exported to javascript
 	vm.Set("session", map[string]interface{}{
 		"post": s.jsPost(vm, session),
+		"ip":   session.Controller().IP(),
+		"date": time.Now().Format("20060102"),
 	})
 	vm.Set("data", data)
 	value, err := vm.Run(s.script)
@@ -82,10 +87,23 @@ func (s *script) jsPost(vm *otto.Otto, session *Session) func(otto.FunctionCall)
 		if err != nil {
 			return ottoErr(err)
 		}
-		if err := session.Post(cfgPath, endpoint, data); err != nil {
+		result, err := session.Post(cfgPath, endpoint, data)
+		if err != nil {
 			return ottoErr(err)
 		}
-		return otto.NullValue()
+		// Los POST con exito tienen una seccion "_global_status.result"
+		if lookup, err := NewLookup("$._global_result.status"); err == nil {
+			if status, err := lookup.Lookup(result); err == nil {
+				if intStatus, ok := status.(float64); ok && intStatus == 0 {
+					return otto.NullValue()
+				}
+			}
+		}
+		v, err := vm.ToValue(result)
+		if err != nil {
+			return ottoErr(err)
+		}
+		return v
 	}
 }
 
@@ -94,6 +112,7 @@ func ottoErr(err error) otto.Value {
 	return val
 }
 
+// Implement console.log
 func jsLog(call otto.FunctionCall) otto.Value {
 	output := []string{}
 	for _, argument := range call.ArgumentList {
@@ -101,4 +120,16 @@ func jsLog(call otto.FunctionCall) otto.Value {
 	}
 	log.Println(strings.Join(output, " "))
 	return otto.UndefinedValue()
+}
+
+// Gets an environment variable
+func jsEnv(call otto.FunctionCall) otto.Value {
+	args := call.ArgumentList
+	if len(args) < 1 || !args[0].IsString() {
+		v, _ := otto.ToValue("")
+		return v
+	}
+	vname, _ := args[0].ToString()
+	value, _ := otto.ToValue(os.Getenv(vname))
+	return value
 }

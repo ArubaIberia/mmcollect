@@ -56,6 +56,11 @@ func NewController(md, username, pass string, timeout time.Duration, skipVerify 
 	}
 }
 
+// IP returns the address of the controller
+func (c *Controller) IP() string {
+	return c.md
+}
+
 // Session opens a new session to the controller
 func (c *Controller) Session() (*Session, error) {
 	apiURL, data := fmt.Sprintf("%s/api/login", c.url), url.Values{}
@@ -102,6 +107,9 @@ func (s *Session) Close() error {
 }
 
 func (s *Session) apiURL(api string, params map[string]string) (string, error) {
+	if strings.HasPrefix(api, "/") {
+		api = api[1:]
+	}
 	apiURL, err := url.Parse(fmt.Sprintf("%s/configuration/%s", s.controller.url, api))
 	if err != nil {
 		return "", err
@@ -119,18 +127,18 @@ func (s *Session) apiURL(api string, params map[string]string) (string, error) {
 }
 
 // Post a request to the controller
-func (s *Session) Post(cfgpath, api string, data interface{}) error {
+func (s *Session) Post(cfgpath, api string, data interface{}) (interface{}, error) {
 	apiURL, err := s.apiURL(api, map[string]string{"config_path": "/mm"})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	body, err := json.Marshal(data)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req, err := http.NewRequest(http.MethodPost, apiURL, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Cookie", fmt.Sprintf("SESSION=%s", s.token))
@@ -140,18 +148,23 @@ func (s *Session) Post(cfgpath, api string, data interface{}) error {
 		defer resp.Body.Close()
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if resp.StatusCode != 200 {
 		var msg string
-		if byteMsg, err := ioutil.ReadAll(resp.Body); err != nil {
+		if b, err := ioutil.ReadAll(resp.Body); err != nil {
 			msg = err.Error()
 		} else {
-			msg = string(byteMsg)
+			msg = string(b)
 		}
-		return fmt.Errorf("MD %s: Post to %s failed: [%d] %s", s.controller.md, api, resp.StatusCode, msg)
+		return nil, fmt.Errorf("POST Error (%s): %s", resp.StatusCode, msg)
 	}
-	return nil
+	dec := json.NewDecoder(resp.Body)
+	var result interface{}
+	if err := dec.Decode(&result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // Show runs a command on the controller, filtered through the Lookup
@@ -190,6 +203,11 @@ func (s *Session) Show(cmd string, path Lookup) (interface{}, error) {
 		data = lookup
 	}
 	return data, nil
+}
+
+// Controller for this session
+func (s *Session) Controller() *Controller {
+	return s.controller
 }
 
 // Switches lists the IP addresses of the switches that comply with the given filter

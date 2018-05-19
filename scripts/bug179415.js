@@ -7,7 +7,7 @@
 
 // Obtengo las direcciones IP de las interfaces
 var interfaces = _.reduce(data[0], function (memo, line) {
-	// El tercer campo de cada línea debería ser la dirección IP de una interfaz
+	// El tercer campo de cada linea deberia ser la direccion IP de una interfaz
 	var ip = line.match(/\S+/g)[2];
 	// Compruebo que parece una IP
 	if (/^[0-9\.]{7,}$/.test(ip)) {
@@ -22,7 +22,7 @@ var redes = _.map(interfaces, function(ip) {
 
 // Devuelve las IPs afectadas por el bug
 function ips_afectadas(ips, interfaces, redes) {
-	// Si tanto la IP origen como destino son locales, el flujo está afectado.
+	// Si tanto la IP origen como destino son locales, el flujo esta afectado.
 	if (_.every(ips, function(ip) { return en_red(ip, redes); })) {
 		// Devuelvo las IPs que pertenezcan a la controladora.
 		return _.filter(ips, function(ip) { return _.indexOf(interfaces, ip) < 0 });
@@ -45,7 +45,8 @@ var result = _.filter(data[1], function(line) {
 	}
 });
 
-// Manda el user delete a la controladora, y añade el resultado a la salida
+// Manda el user delete a la controladora, y agrega el resultado a la salida
 result.concat(_.map(_.keys(users), function(ip) {
-	return "SENT aaa_user_delete FOR " + ip + ": " + session.post("/mm", "object/aaa_user_delete", { "ipaddr": ip });
+	var msg = JSON.stringify(session.post("/mm", "object/aaa_user_delete", { "ipaddr": ip }));
+	return "SENT aaa_user_delete FOR " + ip + ": " + msg;
 }));
