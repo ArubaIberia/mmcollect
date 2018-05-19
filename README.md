@@ -251,7 +251,8 @@ The script must be valid JavaScript, and is parsed using the [otto](https://gith
 
   - `date: string`: The date of the session, in `YYYYMMdd` format.
   - `ip: string`: The IP address of the controller (read-only).
-  - `post(cfg_path: string, api_endpoint: string, data: object)`: Send HTTP POST requests to the controller. Returns `null` on success, an error object otherwise.
+  - `post(cfg_path: string, api_endpoint: string, data: object)`: Send HTTP POST request to the controller.
+  - `get(cfg_path: string, api_endpoint: string, data: object)`: Send HTTP GET request to the controller.
 
 For instance, say you want to drop all users sending SMB traffic, using `aaa user delete`. You can look for port 445 in the output of the `show datapath session table`, and POST a message to the controller to delete those users. Save this script as *aaa_user_delete.js*:
 

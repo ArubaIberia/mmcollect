@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -106,15 +107,67 @@ func (s *Session) Close() error {
 	return nil
 }
 
-func (s *Session) apiURL(api string, params map[string]string) (string, error) {
-	if strings.HasPrefix(api, "/") {
-		api = api[1:]
+// Get request
+func (s *Session) Get(cfgPath, endpoint string, data interface{}) (interface{}, error) {
+	var params map[string]string
+	switch data := data.(type) {
+	case map[string]string:
+		params = data
+	case map[string]interface{}:
+		params := make(map[string]string)
+		for k, v := range data {
+			switch v := v.(type) {
+			case string:
+				params[k] = v
+			default:
+				params[k] = fmt.Sprintf("%s", v)
+			}
+		}
+	default:
+		return nil, fmt.Errorf("Invalid params type: %T", data)
 	}
-	apiURL, err := url.Parse(fmt.Sprintf("%s/configuration/%s", s.controller.url, api))
+	return s.apiRequest(http.MethodGet, cfgPath, endpoint, params, nil)
+}
+
+// Post request
+func (s *Session) Post(cfgPath, endpoint string, data interface{}) (interface{}, error) {
+	var body io.Reader
+	if data != nil {
+		marshaled, err := json.Marshal(data)
+		if err != nil {
+			return nil, err
+		}
+		body = bytes.NewReader(marshaled)
+	}
+	return s.apiRequest(http.MethodPost, cfgPath, endpoint, nil, body)
+}
+
+// Show runs a show command on the controller
+func (s *Session) Show(cmd string, path Lookup) (interface{}, error) {
+	result, err := s.Get("/mm", "showcommand", map[string]string{"command": cmd})
+	if err != nil {
+		return nil, err
+	}
+	if path != nil {
+		lookup, err := path.Lookup(result)
+		if err != nil {
+			return nil, err
+		}
+		result = lookup
+	}
+	return result, nil
+}
+
+func (s *Session) apiRequest(method, cfgPath, endpoint string, params map[string]string, body io.Reader) (interface{}, error) {
+	if strings.HasPrefix(endpoint, "/") {
+		endpoint = endpoint[1:]
+	}
+	apiURL, err := url.Parse(fmt.Sprintf("%s/configuration/%s", s.controller.url, endpoint))
 	if err != nil {
 		return "", err
 	}
 	query := apiURL.Query()
+	query.Set("config_path", cfgPath)
 	query.Set("json", "1")
 	query.Set("UIDARUBA", s.token)
 	if params != nil {
@@ -123,59 +176,12 @@ func (s *Session) apiURL(api string, params map[string]string) (string, error) {
 		}
 	}
 	apiURL.RawQuery = query.Encode()
-	return apiURL.String(), nil
-}
-
-// Post a request to the controller
-func (s *Session) Post(cfgpath, api string, data interface{}) (interface{}, error) {
-	apiURL, err := s.apiURL(api, map[string]string{"config_path": "/mm"})
+	req, err := http.NewRequest(method, apiURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
-	body, err := json.Marshal(data)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequest(http.MethodPost, apiURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("Content-Type", "application/json")
-	req.Header.Add("Cookie", fmt.Sprintf("SESSION=%s", s.token))
-	req.Header.Add("Accept", "application/json")
-	resp, err := s.controller.client.Do(req)
-	if resp != nil && resp.Body != nil {
-		defer resp.Body.Close()
-	}
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != 200 {
-		var msg string
-		if b, err := ioutil.ReadAll(resp.Body); err != nil {
-			msg = err.Error()
-		} else {
-			msg = string(b)
-		}
-		return nil, fmt.Errorf("POST Error (%s): %s", resp.StatusCode, msg)
-	}
-	dec := json.NewDecoder(resp.Body)
-	var result interface{}
-	if err := dec.Decode(&result); err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
-// Show runs a command on the controller, filtered through the Lookup
-func (s *Session) Show(cmd string, path Lookup) (interface{}, error) {
-	apiURL, err := s.apiURL("showcommand", map[string]string{"command": cmd})
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
-	if err != nil {
-		return nil, err
+	if body != nil {
+		req.Header.Add("Content-Type", "application/json")
 	}
 	req.Header.Add("Cookie", fmt.Sprintf("SESSION=%s", s.token))
 	req.Header.Add("Accept", "application/json")
@@ -187,22 +193,15 @@ func (s *Session) Show(cmd string, path Lookup) (interface{}, error) {
 		return nil, err
 	}
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("Run '%s' returned error code %d (%s)", cmd, resp.StatusCode, resp.Status)
+		return nil, fmt.Errorf("%s '%s' returned error code %d", method, apiURL.String(), resp.StatusCode)
 	}
 	dec := json.NewDecoder(resp.Body)
 	var data interface{}
 	if err := dec.Decode(&data); err != nil {
 		return nil, err
 	}
-	data = noWhitespace(data, s.controller.reg)
-	if path != nil {
-		lookup, err := path.Lookup(data)
-		if err != nil {
-			return nil, err
-		}
-		data = lookup
-	}
-	return data, nil
+	result := noWhitespace(data, s.controller.reg)
+	return result, nil
 }
 
 // Controller for this session

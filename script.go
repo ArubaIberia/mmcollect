@@ -53,6 +53,7 @@ func (s *script) Run(session *Session, data []interface{}) (interface{}, error) 
 	// Post(cfgpath, api, data) exported to javascript
 	vm.Set("session", map[string]interface{}{
 		"post": s.jsPost(vm, session),
+		"get":  s.jsGet(vm, session),
 		"ip":   session.Controller().IP(),
 		"date": time.Now().Format("20060102"),
 	})
@@ -68,8 +69,10 @@ func (s *script) Run(session *Session, data []interface{}) (interface{}, error) 
 	return native, nil
 }
 
-// jsPost makes a closure for sending POST request to the session
-func (s *script) jsPost(vm *otto.Otto, session *Session) func(otto.FunctionCall) otto.Value {
+type requestFunc func(cfgPath, endpoint string, data interface{}) (interface{}, error)
+
+// Closure for an API request to the session
+func apiCall(vm *otto.Otto, rFunc requestFunc) func(otto.FunctionCall) otto.Value {
 	return func(call otto.FunctionCall) otto.Value {
 		args := call.ArgumentList
 		if len(args) < 3 {
@@ -80,24 +83,19 @@ func (s *script) jsPost(vm *otto.Otto, session *Session) func(otto.FunctionCall)
 		}
 		cfgPath := call.Argument(0).String()
 		if !args[1].IsString() {
-			return ottoErr(errors.New("Second argument must be api endpoint (e.g. \"/object/aaa_user_delete\""))
+			return ottoErr(errors.New("Second argument must be api endpoint (e.g. \"object/aaa_user_delete\""))
 		}
 		endpoint := call.Argument(1).String()
 		data, err := call.Argument(2).Export()
 		if err != nil {
 			return ottoErr(err)
 		}
-		result, err := session.Post(cfgPath, endpoint, data)
+		result, err := rFunc(cfgPath, endpoint, data)
 		if err != nil {
 			return ottoErr(err)
 		}
-		// Los POST con exito tienen una seccion "_global_status.result"
-		if lookup, err := NewLookup("$._global_result.status"); err == nil {
-			if status, err := lookup.Lookup(result); err == nil {
-				if intStatus, ok := status.(float64); ok && intStatus == 0 {
-					return otto.NullValue()
-				}
-			}
+		if result == nil {
+			return otto.NullValue()
 		}
 		v, err := vm.ToValue(result)
 		if err != nil {
@@ -105,6 +103,20 @@ func (s *script) jsPost(vm *otto.Otto, session *Session) func(otto.FunctionCall)
 		}
 		return v
 	}
+}
+
+// Post a request, return nil if no error otherwise an error object
+func (s *script) jsPost(vm *otto.Otto, session *Session) func(otto.FunctionCall) otto.Value {
+	return apiCall(vm, func(cfgPath, endpoint string, data interface{}) (interface{}, error) {
+		return session.Post(cfgPath, endpoint, data)
+	})
+}
+
+// Get a request, return result body
+func (s *script) jsGet(vm *otto.Otto, session *Session) func(otto.FunctionCall) otto.Value {
+	return apiCall(vm, func(cfgPath, endpoint string, data interface{}) (interface{}, error) {
+		return session.Get(cfgPath, endpoint, data)
+	})
 }
 
 func ottoErr(err error) otto.Value {
