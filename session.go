@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -96,8 +97,21 @@ func (c *Controller) Session() (*Session, error) {
 
 // Close the session.
 func (s *Session) Close() error {
+	err := s.close()
+	if err != nil {
+		// A common pattern will be just defer session.Close()
+		// I don't want the error message to go unnoticed
+		log.Println("Error clossing session to ", s.controller.md, ": ", err)
+	}
+	return err
+}
+
+func (s *Session) close() error {
 	apiURL := fmt.Sprintf("%s/api/logout?UIDARUBA=%s", s.controller.url, s.token)
 	resp, err := s.controller.client.Get(apiURL)
+	if resp != nil && resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	if err != nil {
 		return err
 	}

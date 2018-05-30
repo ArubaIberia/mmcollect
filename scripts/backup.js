@@ -52,7 +52,7 @@ function main() {
 		})
 	}
 	// Hago el backup
-	var scphost = getenv("SCP_HOST");
+	var scphost = getenv("SCP_HOST"); // Must be IP address. Hostname not supported.
 	var scppath = getenv("SCP_PATH");
 	var scpuser = getenv("SCP_USER");
 	var scppass = getenv("SCP_PASS");
