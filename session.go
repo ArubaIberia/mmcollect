@@ -101,7 +101,7 @@ func (s *Session) Close() error {
 	if err != nil {
 		// A common pattern will be just defer session.Close()
 		// I don't want the error message to go unnoticed
-		log.Println("Error clossing session to ", s.controller.md, ": ", err)
+		log.Println("Error closing session to ", s.controller.md, ": ", err)
 	}
 	return err
 }
