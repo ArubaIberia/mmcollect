@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -117,6 +118,13 @@ func (s *Session) close() error {
 	}
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("Logout returned error code %d (%s)", resp.StatusCode, resp.Status)
+	}
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(body), "You've been logged out successfully.") {
+		return errors.New(string(body))
 	}
 	return nil
 }
