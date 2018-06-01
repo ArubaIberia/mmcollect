@@ -17,6 +17,20 @@ type Lookup interface {
 // Lookups is a sequence of Lookup objects
 type Lookups []Lookup
 
+type decorated struct {
+	err error
+	msg string
+}
+
+// Error implements error interface
+func (d decorated) Error() string {
+	return fmt.Sprintf("%s, err: %s", d.msg, d.err)
+}
+
+func decorate(err error, data ...interface{}) error {
+	return decorated{err: err, msg: fmt.Sprint(data...)}
+}
+
 // Lookup implements interface Lookup
 func (l Lookups) Lookup(data interface{}) (interface{}, error) {
 	for _, lookup := range l {
@@ -59,7 +73,7 @@ func NewLookup(chain string) (Lookups, error) {
 		}
 		compiled, err := jsonpath.Compile(filter)
 		if err != nil {
-			return nil, err
+			return nil, decorate(err, "Failed to compile filter", filter)
 		}
 		result = append(result, compiled)
 	}
@@ -67,6 +81,10 @@ func NewLookup(chain string) (Lookups, error) {
 }
 
 type includeLookup struct {
+	text string
+}
+
+type excludeLookup struct {
 	text string
 }
 
@@ -96,6 +114,21 @@ func (l *includeLookup) Lookup(data interface{}) (interface{}, error) {
 	result := make([]string, 0, len(lines))
 	for _, line := range lines {
 		if strings.Index(line, l.text) >= 0 {
+			result = append(result, line)
+		}
+	}
+	return result, nil
+}
+
+// Lookup implements Lookup interface
+func (l *excludeLookup) Lookup(data interface{}) (interface{}, error) {
+	lines, err := Select(data, nil)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.Index(line, l.text) < 0 {
 			result = append(result, line)
 		}
 	}
@@ -183,7 +216,7 @@ func mapToString(data map[string]interface{}, attribs []string) ([]string, error
 	// As a fallback, just dump json
 	out, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
-		return nil, err
+		return nil, decorate(err, "Failed to marshal object to JSON,", data)
 	}
 	return strings.Split(string(out), "\n"), nil
 }

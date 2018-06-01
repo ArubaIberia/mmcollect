@@ -158,18 +158,16 @@ func main() {
 
 	// Print results
 	for r := range pool.Results() {
-		var err error
 		if r.Err != nil {
-			err = r.Err
+			log.Println("**Error: Running against MD", r.MD, ",", r.Err)
 		} else {
 			fname := ""
 			if optOutput != nil && *optOutput != "" {
 				fname = fmt.Sprintf("%s%s.log", *optOutput, r.MD)
 			}
-			err = writeLines(fname, r.Data, "*** Controller", r.MD, "[", fname, "]")
-		}
-		if err != nil {
-			log.Println("**Error: Running against MD", r.MD, ",", err)
+			if err = writeLines(fname, r.Data, "*** Controller", r.MD, "[", fname, "]"); err != nil {
+				log.Println("**Error: saving data for MD", r.MD, ",", err)
+			}
 		}
 	}
 }

@@ -130,7 +130,7 @@ mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_l
 
 ### Plain text filters
 
-You can also use plain old **include** or **begin** keywords to filter strings or arrays of strings. If the output of one filter is a string or list of strings, the next filter can be an *include* or *begin*:
+You can also use plain old **include**, **exclude** or **begin** keywords to filter strings or arrays of strings. If the output of one filter is a string or list of strings, the next filter can be an *include*, *exclude* or *begin*:
 
 ```bash
 mmcollect -u admin -h your.mm.ip.address "show datapath session table | $._data | inc 10.1.2.3"

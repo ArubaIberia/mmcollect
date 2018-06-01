@@ -71,7 +71,7 @@ func (c *Controller) Session() (*Session, error) {
 	data.Set("password", c.password)
 	req, err := http.NewRequest(http.MethodPost, apiURL, strings.NewReader(data.Encode()))
 	if err != nil {
-		return nil, err
+		return nil, decorate(err, "Parsing login URL", apiURL, "failed")
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Add("Accept", "application/json")
@@ -80,7 +80,7 @@ func (c *Controller) Session() (*Session, error) {
 		defer resp.Body.Close()
 	}
 	if err != nil {
-		return nil, err
+		return nil, decorate(err, "Login request to MD", c.md, "failed")
 	}
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("MD %s: Login incorrect (username %s)", c.md, c.username)
@@ -114,14 +114,14 @@ func (s *Session) close() error {
 		defer resp.Body.Close()
 	}
 	if err != nil {
-		return err
+		return decorate(err, "Failed to perform logout request to", s.controller.md)
 	}
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("Logout returned error code %d (%s)", resp.StatusCode, resp.Status)
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return err
+		return decorate(err, "Could not read body of logout response")
 	}
 	if !strings.Contains(string(body), "You've been logged out successfully.") {
 		return errors.New(string(body))
@@ -157,7 +157,7 @@ func (s *Session) Post(cfgPath, endpoint string, data interface{}) (interface{},
 	if data != nil {
 		marshaled, err := json.Marshal(data)
 		if err != nil {
-			return nil, err
+			return nil, decorate(err, "Failed to marshal data to json,", data)
 		}
 		body = bytes.NewReader(marshaled)
 	}
@@ -168,7 +168,7 @@ func (s *Session) Post(cfgPath, endpoint string, data interface{}) (interface{},
 func (s *Session) Show(cmd string, path Lookup) (interface{}, error) {
 	result, err := s.Get("/mm", "showcommand", map[string]string{"command": cmd})
 	if err != nil {
-		return nil, err
+		return nil, decorate(err, "Failed to GET show command from ", s.controller.md)
 	}
 	if path != nil {
 		lookup, err := path.Lookup(result)
@@ -184,9 +184,10 @@ func (s *Session) apiRequest(method, cfgPath, endpoint string, params map[string
 	if strings.HasPrefix(endpoint, "/") {
 		endpoint = endpoint[1:]
 	}
-	apiURL, err := url.Parse(fmt.Sprintf("%s/configuration/%s", s.controller.url, endpoint))
+	textURL := fmt.Sprintf("%s/configuration/%s", s.controller.url, endpoint)
+	apiURL, err := url.Parse(textURL)
 	if err != nil {
-		return "", err
+		return "", decorate(err, "Failed to parse url", textURL)
 	}
 	query := apiURL.Query()
 	query.Set("config_path", cfgPath)
@@ -200,7 +201,7 @@ func (s *Session) apiRequest(method, cfgPath, endpoint string, params map[string
 	apiURL.RawQuery = query.Encode()
 	req, err := http.NewRequest(method, apiURL.String(), body)
 	if err != nil {
-		return nil, err
+		return nil, decorate(err, "Failed to build request for md", s.controller.md)
 	}
 	if body != nil {
 		req.Header.Add("Content-Type", "application/json")
@@ -212,15 +213,18 @@ func (s *Session) apiRequest(method, cfgPath, endpoint string, params map[string
 		defer resp.Body.Close()
 	}
 	if err != nil {
-		return nil, err
+		return nil, decorate(err, "Failed to GET show command from md", s.controller.md)
 	}
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("%s '%s' returned error code %d", method, apiURL.String(), resp.StatusCode)
 	}
-	dec := json.NewDecoder(resp.Body)
+	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, decorate(err, "Failed to read response body from md", s.controller.md)
+	}
 	var data interface{}
-	if err := dec.Decode(&data); err != nil {
-		return nil, err
+	if err := json.Unmarshal(bodyBytes, &data); err != nil {
+		return nil, decorate(err, "Failed to decode data", string(bodyBytes))
 	}
 	result := noWhitespace(data, s.controller.reg)
 	return result, nil
