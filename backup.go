@@ -101,6 +101,7 @@ func doBackup(s *Session, fileName string) (string, error) {
 	for _, suffix := range suffixes {
 		if strings.HasSuffix(fileName, suffix) {
 			baseFile = strings.TrimSuffix(fileName, suffix)
+			break
 		}
 	}
 	if baseFile == "" {
@@ -108,7 +109,8 @@ func doBackup(s *Session, fileName string) (string, error) {
 	}
 	result, err := s.Post("/md", "object/flash_backup", map[string]string{
 		"backup_flash": "flash",
-		"filename":     baseFile,
+		// Not suported in AOS 8.2.2.2
+		// "filename":     baseFile,
 	})
 	if err != nil {
 		return "", decorate(err, "Failed to post backup request")
@@ -119,12 +121,14 @@ func doBackup(s *Session, fileName string) (string, error) {
 	}
 	status, err := lookup.Lookup(result)
 	if err != nil {
-		return "", decorate(err, "Failed to retrieve status", result)
+		return "", decorate(err, "Failed to retrieve status, ", result)
 	}
 	if status, ok := status.(float64); !ok || status != 0 {
 		return "", fmt.Errorf("Unexpected backup _global_result.status: %+v", result)
 	}
-	return fmt.Sprintf("%s.tar.gz", baseFile), nil
+	// Not supported in AOS 8.2.2.2
+	// return fmt.Sprintf("%s.tar.gz", baseFile), nil
+	return "flashbackup.tar.gz", nil
 }
 
 // doCopy copies the flash backup to the external server
