@@ -59,12 +59,20 @@ func (c *Controller) Backup(to *url.URL) error {
 	if file == "" {
 		return errors.New("Missing file name for backup")
 	}
-	var isValid = regexp.MustCompile(`^[a-zA-Z0-9\.\_-]+$`).MatchString
-	if !isValid(dir) {
-		return fmt.Errorf("File path '%s' can only contain letters, digits, or any of '.', '-', '_'", dir)
+	const validRegexp = `^[a-zA-Z0-9\_][a-zA-Z0-9\.\_-]*$`
+	isValid := regexp.MustCompile(validRegexp).MatchString
+	// Check each component of the path
+	dir = strings.Trim(dir, "/")
+	for _, elem := range strings.Split(dir, "/") {
+		if elem == "" {
+			return fmt.Errorf("Dir path '%s' cannot contain double forward slashes", dir)
+		}
+		if !isValid(elem) {
+			return fmt.Errorf("Each componen in dir path '%s' must match '%s'", dir, validRegexp)
+		}
 	}
 	if !isValid(file) {
-		return fmt.Errorf("File name '%s' can only contain letters, digits, or any of '.', '-', '_'", file)
+		return fmt.Errorf("File name '%s' must match '%s'", file, validRegexp)
 	}
 	s, err := c.Session()
 	if err != nil {

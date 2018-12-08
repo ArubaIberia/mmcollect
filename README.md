@@ -295,5 +295,7 @@ The FTP URL must have the following format: *ftp://user:pass@host/path/file.tar.
 - `user`: FTP user name
 - `pass`: FTP user password. Can be omitted, and mmcollect will prompt for it.
 - `host`: FTP host name or IP address. If it is a host name, mmcollect will try to resolve it to an IP address.
-- `path`: Folder inside the FTP server. Cannot be empty.
+- `path`: Folder inside the FTP server. It will always be considered a relative path, i.e. prefix "/" will be removed.
 - `file.tar.gz`: Backup filename. Must end with '.tgz' or '.tar.gz'.
+
+Neither the path nor the filename can begin with a '.' or a '-' character. Other than that, path can contain any alphanumeric character, '.', '-' or '_'.
