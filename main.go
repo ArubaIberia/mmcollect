@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"math/rand"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -18,7 +19,7 @@ func main() {
 	// Defaults for some command line arguments
 	DefaultFilter := ""
 	DefaultTasks := 25
-	DefaultArgs := "show version | $._data[0]"
+	//DefaultArgs := "show version | $._data[0]"
 	DefaultTimeout := 60
 	DefaultVerify := false
 	DefaultDelay := 0
@@ -35,6 +36,7 @@ func main() {
 	optPassword := flag.String("p", "", "Login password")
 	optDelay := flag.Int("d", DefaultDelay, "Delay between commands (seconds)")
 	optScript := flag.String("s", "", "Path of script file to run for each controller")
+	optBackup := flag.String("backup", "", "URL for intermediate backup storage (e.g. 'ftp://user:pass@server/folder/filename.tar.gz')")
 
 	// Parse input
 	flag.Parse()
@@ -65,9 +67,9 @@ func main() {
 	if optVerify == nil {
 		optVerify = &DefaultVerify
 	}
-	if args == nil || len(args) <= 0 {
-		args = []string{DefaultArgs}
-	}
+	//if args == nil || len(args) <= 0 {
+	//	args = []string{DefaultArgs}
+	//}
 
 	// Turn the request into a list of Tasks
 	commands := SplitNonEmpty(strings.Join(args, " "), ";")
@@ -118,10 +120,32 @@ func main() {
 		script = scriptFile
 	}
 
+	// Build the controller
+	delay := time.Second * time.Duration(*optDelay)
+	timeout := time.Second * time.Duration(*optTimeout)
+	mm := NewController(*optMD, *optUsername, pass, timeout, !(*optVerify))
+
+	// Do we need to do a backup?
+	if optBackup != nil && *optBackup != "" {
+		to, err := url.Parse(*optBackup)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Println("Starting MM flash backup")
+		if err := mm.Backup(to); err != nil {
+			log.Fatal(err)
+		}
+		log.Print("Flash backup completed")
+	}
+
+	// If no other task, exit
+	if len(tasks) <= 0 {
+		log.Print("No more tasks to run")
+		os.Exit(0)
+	}
+
 	// Get MD switches
 	log.Println("Getting the switch list")
-	timeout := time.Second * time.Duration(*optTimeout)
-	delay := time.Second * time.Duration(*optDelay)
 	var filter Lookup
 	if optFilter != nil && *optFilter != "" {
 		compiled, err := NewLookup(*optFilter)
@@ -130,7 +154,7 @@ func main() {
 		}
 		filter = compiled
 	}
-	switches, err := NewController(*optMD, *optUsername, pass, timeout, !(*optVerify)).Switches(filter)
+	switches, err := mm.Switches(filter)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -190,7 +214,7 @@ func writeLines(fname string, data []interface{}, header ...interface{}) error {
 	// Dump a header to separate different controllers
 	fmt.Fprintln(os.Stderr, header...)
 	if fname == "" {
-		// When output is stdout, this funtion is blocking
+		// When output is stdout, this function is blocking
 		for _, line := range lines {
 			fmt.Fprintln(w, line)
 		}

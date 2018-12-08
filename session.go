@@ -213,7 +213,7 @@ func (s *Session) apiRequest(method, cfgPath, endpoint string, params map[string
 		defer resp.Body.Close()
 	}
 	if err != nil {
-		return nil, decorate(err, "Failed to GET show command from md", s.controller.md)
+		return nil, decorate(err, "Failed to run request from md", s.controller.md)
 	}
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("%s '%s' returned error code %d", method, apiURL.String(), resp.StatusCode)

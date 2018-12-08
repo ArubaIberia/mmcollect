@@ -9,6 +9,14 @@ The basic usage requires just the IP address (or hostname) of the Mobility Manag
 mmcollect -h your.mm.ip.address -u username "show version"
 ```
 
+mmcollect can also collect a flash backup of your MM, using an intermediate FTP server for transferring the backup from the MM to your computer.
+
+```bash
+# Will run a "backup flash" command on the MM, upload the buckup to the FTP server, and then download it to the current folder.
+# Once downloaded, the baxkup will be removed from the remote server.
+mmcollect -h your.mm.ip.address -u username -backup "ftp://user:pass@host/path/filename.tar.gz"
+```
+
 More advanced use cases are described below.
 
 ## Connecting to the MM and Controllers
@@ -215,11 +223,11 @@ mmcollect -u admin -h your.mm.ip.address -d 5 "show datapath session table | $.d
 
 You can tell mmconnect to save the output of each controller to a separate file with the *-o <prefix>* flag. Each controller will get its output saved to a separate file, named after the controller's IP address.
 
-For instance, if you want to same all the logs into folder *logs* with names *switch-<IP.address.of.controller>.log*, give mmcollect the prefix *-t logs/switch-*:
+For instance, if you want to same all the logs into folder *logs* with names *switch_<IP.address.of.controller>.log*, give mmcollect the prefix *-t logs/switch_*:
 
 ```bash
-# Run "show datapath session" three times, with 5 seconds delay between each run
-mmcollect -u admin -h your.mm.ip.address -o logs/switch- "show datapath session table"
+# Run "show datapath session table" and store the result in a separate file under logs/, for each MD
+mmcollect -u admin -h your.mm.ip.address -o logs/switch_ "show datapath session table"
 ```
 
 ## Running in batch
@@ -230,7 +238,7 @@ If you want to run the command in batch mode (not interactively), you can provid
 mmcollect -u admin -h your.mm.ip.address -p <your-password> "show datapath session table"
 ```
 
-It may be wise to use environment variables or shell expansion instead of a literal password, so your credentials do not show up in the output of "ps -a", for example:
+It might be wise to use environment variables or shell expansion instead of a literal password, so your credentials do not show up in the output of "ps -a", for example:
 
 ```bash
 # Use an environment variable
@@ -272,3 +280,20 @@ And then run your collector with *-s aaa_user_delete.js*:
 ```bash
 mmcollect -u admin -h your.mm.ip.address -s aaa_user_delete.js "show datapath session table | $._data | include 445"
 ```
+
+## Backup
+
+mmcollect can run a "backup flash" on the MM and download the backup to the local machine, using an FTP server as intermediate storage. When given the URL of an FTP server with the *-backup <ftp>* flag, mmcollect will:
+
+- Run a `backup flash` command on the MM.
+- Copy the flash backup file to the FTP server.
+- Download the file from the FTP server to the current folder.
+- Remove the file from the FTP server.
+
+The FTP URL must have the following format: *ftp://user:pass@host/path/file.tar.gz*, where:
+
+- `user`: FTP user name
+- `pass`: FTP user password. Can be omitted, and mmcollect will prompt for it.
+- `host`: FTP host name or IP address. If it is a host name, mmcollect will try to resolve it to an IP address.
+- `path`: Folder inside the FTP server. Cannot be empty.
+- `file.tar.gz`: Backup filename. Must end with '.tgz' or '.tar.gz'.
