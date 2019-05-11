@@ -8,11 +8,19 @@ import (
 	"math/rand"
 	"net/url"
 	"os"
+	"os/signal"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh/terminal"
 )
+
+// ResultStream is the result of running one or more commands in a controller
+type ResultStream struct {
+	MD     string
+	Stream chan (Result)
+}
 
 func main() {
 
@@ -23,11 +31,14 @@ func main() {
 	DefaultTimeout := 60
 	DefaultVerify := false
 	DefaultDelay := 0
+	DefaultOutput := ""
+	DefaultLoop := 0
 
 	// Define command line arguments
 	optMD := flag.String("h", "", "IP address or host name of MM")
 	optUsername := flag.String("u", "", "Username to log in")
 	optLimit := flag.Int("l", 0, "Limit number of controllers to query")
+	optLoop := flag.Int("L", 0, "If greater than 0, time between repetitions of the commands. If 0, do not repeat")
 	optFilter := flag.String("f", DefaultFilter, "Filter out what switches to collect")
 	optTasks := flag.Int("t", DefaultTasks, "Number of parallel tasks")
 	optOutput := flag.String("o", "", "Output to a file named after the switch")
@@ -66,6 +77,12 @@ func main() {
 	}
 	if optVerify == nil {
 		optVerify = &DefaultVerify
+	}
+	if optOutput == nil {
+		optOutput = &DefaultOutput
+	}
+	if optLoop == nil {
+		optLoop = &DefaultLoop
 	}
 	//if args == nil || len(args) <= 0 {
 	//	args = []string{DefaultArgs}
@@ -165,67 +182,74 @@ func main() {
 		r.Shuffle(len(switches), func(i, j int) {
 			switches[i], switches[j] = switches[j], switches[i]
 		})
-		switches = switches[:*optLimit]
+		limit := *optLimit
+		if limit > len(switches) {
+			limit = len(switches)
+		}
+		switches = switches[:limit]
+	}
+	loop := time.Second * time.Duration(*optLoop)
+	if loop > 0 && *optOutput == "" && len(switches) > 1 {
+		log.Fatal("If -L is specified for more than 1 controller, you must also provide an output prefix with -o")
 	}
 	log.Println("Switch list collected, working on a set of ", len(switches))
+
+	// Set to wait for output
+	outputTask := sync.WaitGroup{}
+	defer outputTask.Wait()
 
 	// Feed the pool
 	if *optTasks > len(switches) {
 		*optTasks = len(switches)
 	}
-	pool := NewPool(*optTasks, delay, timeout, !(*optVerify))
+	factory := NewFactory(*optOutput)
+	pool := NewPool(*optTasks, delay, timeout, loop, !(*optVerify))
 	for _, md := range switches {
-		pool.Push(md, *optUsername, pass, tasks, script)
+		stream := pool.Push(md, *optUsername, pass, tasks, script)
+		outputTask.Add(1)
+		go func(md string) {
+			defer outputTask.Done()
+			w, err := factory(md)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "Error in", md, "factory: ", err)
+				return
+			}
+			defer w.Close()
+			if err := writeResult(w, stream); err != nil {
+				fmt.Fprintln(os.Stderr, "Error in", md, "result: ", err)
+			}
+		}(md)
 	}
-	pool.Close()
-	log.Println("Waiting for workers to complete!")
 
-	// Print results
-	for r := range pool.Results() {
-		if r.Err != nil {
-			log.Println("**Error: Running against MD", r.MD, ",", r.Err)
-		} else {
-			fname := ""
-			if optOutput != nil && *optOutput != "" {
-				fname = fmt.Sprintf("%s%s.log", *optOutput, r.MD)
-			}
-			if err = writeLines(fname, r.Data, "*** Controller", r.MD, "[", fname, "]"); err != nil {
-				log.Println("**Error: saving data for MD", r.MD, ",", err)
-			}
-		}
+	// Wait until finished, or interrupted
+	if loop > 0 {
+		// if looping forever, wait for ^C
+		sigchan := make(chan os.Signal, 1)
+		signal.Notify(sigchan, os.Interrupt)
+		go func() {
+			<-sigchan
+			pool.Cancel()
+		}()
 	}
+	log.Println("Waiting for workers to complete!")
+	pool.Close()
 }
 
 // writeLines dumps the array to the given file, or stdout
-func writeLines(fname string, data []interface{}, header ...interface{}) error {
-	lines, err := Select(data, nil)
-	if err != nil {
-		return err
-	}
-	var w io.WriteCloser
-	if fname == "" {
-		w = os.Stdout
-	} else {
-		w, err = os.Create(fname)
+func writeResult(w io.Writer, stream chan Result) error {
+	for result := range stream {
+		data, err := result.Data, result.Err
 		if err != nil {
 			return err
 		}
-	}
-	// Dump a header to separate different controllers
-	fmt.Fprintln(os.Stderr, header...)
-	if fname == "" {
-		// When output is stdout, this function is blocking
+		lines, err := Select(data, nil)
+		if err != nil {
+			return err
+		}
+		// Dump a header to separate different controllers
 		for _, line := range lines {
 			fmt.Fprintln(w, line)
 		}
-	} else {
-		// When output is a file, the function yields a worker and doesn't block
-		go func() {
-			defer w.Close()
-			for _, line := range lines {
-				fmt.Fprintln(w, line)
-			}
-		}()
 	}
 	return nil
 }

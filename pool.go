@@ -12,62 +12,78 @@ type Task struct {
 	Attr []string
 }
 
-// Result is the result of running one or more commands in a controller
+// Result of one execution in the loop
 type Result struct {
-	MD   string
 	Data []interface{}
 	Err  error
 }
 
 // Pool of worker gophers running commands in controllers
 type Pool struct {
-	results    chan Result
 	wg         sync.WaitGroup
-	timeout    time.Duration
 	delay      time.Duration
-	sem        chan bool
+	timeout    time.Duration
+	loop       time.Duration
+	sem        chan struct{}
+	cancel     chan struct{}
 	skipVerify bool
 }
 
 // NewPool returns a new Task Pool
-func NewPool(tasks int, delay, timeout time.Duration, skipVerify bool) *Pool {
+func NewPool(tasks int, delay, timeout, loop time.Duration, skipVerify bool) *Pool {
 	p := &Pool{
 		delay:      delay,
 		timeout:    timeout,
+		loop:       loop,
 		skipVerify: skipVerify,
-		results:    make(chan Result, tasks),
-		sem:        make(chan bool, tasks),
+		sem:        make(chan struct{}, tasks),
+		cancel:     make(chan struct{}),
 	}
 	return p
 }
 
 // Push adds the tasks to the pool
-func (p *Pool) Push(md, username, pass string, commands []Task, script Script) {
+func (p *Pool) Push(md, username, pass string, commands []Task, script Script) chan Result {
 	// Leave notice a new thread is running
+	stream := make(chan Result, 1)
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
-		// Concurrency limit
-		p.sem <- true
-		defer func() { _ = <-p.sem }()
-		// Iterate on the switches, delivering tasks to the queue
-		controller := NewController(md, username, pass, p.timeout, p.skipVerify)
-		data, err := p.run(controller, commands, script)
-		p.results <- Result{MD: md, Data: data, Err: err}
+		defer close(stream)
+		for repeat := true; repeat; {
+			data, err := func() ([]interface{}, error) {
+				// Concurrency limit
+				p.sem <- struct{}{}
+				defer func() { <-p.sem }()
+				// Iterate on the switches, delivering tasks to the queue
+				controller := NewController(md, username, pass, p.timeout, p.skipVerify)
+				return p.run(controller, commands, script)
+			}()
+			// Do not wait on the stream with the semaphore locked!
+			stream <- Result{Data: data, Err: err}
+			if p.loop <= 0 {
+				repeat = false
+			} else {
+				select {
+				case <-time.After(p.loop):
+					repeat = true
+				case <-p.cancel:
+					repeat = false
+				}
+			}
+		}
 	}()
+	return stream
 }
 
-// Close tells the pool no more tasks will be pushed
+// Cancel loops
+func (p *Pool) Cancel() {
+	close(p.cancel)
+}
+
+// Close tells the pool no more tasks will be pushed. It does not cancel it.
 func (p *Pool) Close() {
-	go func() {
-		p.wg.Wait()
-		close(p.results)
-	}()
-}
-
-// Results returns a channel where results are streamed
-func (p *Pool) Results() chan Result {
-	return p.results
+	p.wg.Wait()
 }
 
 // run the required commands
