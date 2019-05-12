@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,12 +17,15 @@ import (
 
 // Controller spawns sessions to a Managed Device
 type Controller struct {
-	client   http.Client
-	url      string
-	username string
-	password string
-	md       string
-	reg      *regexp.Regexp
+	client    *http.Client
+	url       string
+	username  string
+	password  string
+	md        string
+	reg       *regexp.Regexp
+	lastToken string
+	lastUsed  time.Time
+	expires   time.Time
 }
 
 // Session encapsulates a session to the Managed Device
@@ -41,16 +43,11 @@ type loginResponse struct {
 }
 
 // NewController opens a session to a controller
-func NewController(md, username, pass string, timeout time.Duration, skipVerify bool) *Controller {
+func NewController(md, username, pass string, client *http.Client) *Controller {
 	// Non-alphanumeric characters will get replaced by "_" in names
 	reg, _ := regexp.Compile("[^a-zA-Z0-9]+")
 	return &Controller{
-		client: http.Client{
-			Timeout: timeout,
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: skipVerify},
-			},
-		},
+		client:   client,
 		url:      fmt.Sprintf("https://%s:4343/v1", md),
 		reg:      reg,
 		username: username,
@@ -65,13 +62,17 @@ func (c *Controller) IP() string {
 }
 
 // Session opens a new session to the controller
-func (c *Controller) Session() (*Session, error) {
+func (c *Controller) login() error {
 	apiURL, data := fmt.Sprintf("%s/api/login", c.url), url.Values{}
+	parsedURL, err := url.Parse(apiURL)
+	if err != nil {
+		return decorate(err, "Parsing login URL", apiURL, "failed")
+	}
 	data.Set("username", c.username)
 	data.Set("password", c.password)
 	req, err := http.NewRequest(http.MethodPost, apiURL, strings.NewReader(data.Encode()))
 	if err != nil {
-		return nil, decorate(err, "Parsing login URL", apiURL, "failed")
+		return decorate(err, "Building request for", apiURL, "failed")
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Add("Accept", "application/json")
@@ -80,41 +81,37 @@ func (c *Controller) Session() (*Session, error) {
 		defer resp.Body.Close()
 	}
 	if err != nil {
-		return nil, decorate(err, "Login request to MD", c.md, "failed")
+		return decorate(err, "Login request to MD", c.md, "failed")
 	}
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("MD %s: Login incorrect (username %s)", c.md, c.username)
+		return fmt.Errorf("MD %s: Login incorrect (username %s)", c.md, c.username)
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("MD %s: Could not read login response", c.md)
+		return fmt.Errorf("MD %s: Could not read login response", c.md)
 	}
 	lr := loginResponse{}
 	if err := json.Unmarshal(body, &lr); err != nil {
-		return nil, fmt.Errorf("MD %s: Expected login response, got %s", c.md, string(body))
+		return fmt.Errorf("MD %s: Expected login response, got %s", c.md, string(body))
 	}
-	return &Session{controller: c, token: lr.GlobalResult.UIDARUBA}, nil
+	c.lastToken = lr.GlobalResult.UIDARUBA
+	for _, cookie := range c.client.Jar.Cookies(parsedURL) {
+		if cookie.Name == "SESSION" {
+			c.expires = cookie.Expires
+			return nil
+		}
+	}
+	return fmt.Errorf("MD %s: No SESSION cookie received", c.md)
 }
 
-// Close the session.
-func (s *Session) Close() error {
-	err := s.close()
-	if err != nil {
-		// A common pattern will be just defer session.Close()
-		// I don't want the error message to go unnoticed
-		log.Println("Error closing session to ", s.controller.md, ": ", err)
-	}
-	return err
-}
-
-func (s *Session) close() error {
-	apiURL := fmt.Sprintf("%s/api/logout?UIDARUBA=%s", s.controller.url, s.token)
-	resp, err := s.controller.client.Get(apiURL)
+func (c *Controller) logout() error {
+	apiURL := fmt.Sprintf("%s/api/logout?UIDARUBA=%s", c.url, c.lastToken)
+	resp, err := c.client.Get(apiURL)
 	if resp != nil && resp.Body != nil {
 		defer resp.Body.Close()
 	}
 	if err != nil {
-		return decorate(err, "Failed to perform logout request to", s.controller.md)
+		return decorate(err, "Failed to perform logout request to", c.md)
 	}
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("Logout returned error code %d (%s)", resp.StatusCode, resp.Status)
@@ -126,6 +123,41 @@ func (s *Session) close() error {
 	if !strings.Contains(string(body), "You've been logged out successfully.") {
 		return errors.New(string(body))
 	}
+	return nil
+}
+
+// Session opens a new session to the controller
+func (c *Controller) Session() (*Session, error) {
+	now := time.Now()
+	if c.lastUsed.IsZero() || (!c.expires.IsZero() && c.expires.Before(now)) || (now.Sub(c.lastUsed).Minutes() > 5) {
+		if c.lastToken != "" {
+			c.logout()
+		}
+		if err := c.login(); err != nil {
+			return nil, err
+		}
+	}
+	c.lastUsed = now
+	return &Session{controller: c, token: c.lastToken}, nil
+}
+
+// Close the controller
+func (c *Controller) Close() error {
+	if c.lastToken == "" {
+		return nil
+	}
+	err := c.logout()
+	if err != nil {
+		// A common pattern will be just defer session.Close()
+		// I don't want the error message to go unnoticed
+		log.Println("Error closing session to ", c.md, ": ", err)
+	}
+	return err
+}
+
+// Close the session
+func (s *Session) Close() error {
+	// Does nothing. Sessions are cached in the Controller object.
 	return nil
 }
 

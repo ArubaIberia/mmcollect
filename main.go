@@ -1,10 +1,13 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"log"
 	"math/rand"
+	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"os/signal"
@@ -13,6 +16,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/net/publicsuffix"
 )
 
 // ResultStream is the result of running one or more commands in a controller
@@ -138,9 +142,21 @@ func main() {
 	}
 
 	// Build the controller
-	delay := time.Second * time.Duration(*optDelay)
-	timeout := time.Second * time.Duration(*optTimeout)
-	mm := NewController(*optMD, *optUsername, pass, timeout, !(*optVerify))
+	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
+	if err != nil {
+		log.Fatal(err)
+	}
+	client := &http.Client{
+		Timeout: time.Second * time.Duration(*optTimeout),
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: !(*optVerify),
+			},
+		},
+		Jar: jar,
+	}
+	mm := NewController(*optMD, *optUsername, pass, client)
+	defer mm.Close()
 
 	// Do we need to do a backup?
 	if optBackup != nil && *optBackup != "" {
@@ -203,8 +219,9 @@ func main() {
 	if *optTasks > len(switches) {
 		*optTasks = len(switches)
 	}
+	delay := time.Second * time.Duration(*optDelay)
 	factory := NewFactory(*optOutput)
-	pool := NewPool(*optTasks, delay, timeout, loop, !(*optVerify))
+	pool := NewPool(*optTasks, delay, loop, client)
 	for _, md := range switches {
 		stream := pool.Push(md, *optUsername, pass, tasks, script)
 		outputTask.Add(1)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"sync"
 	"time"
 )
@@ -20,24 +21,22 @@ type Result struct {
 
 // Pool of worker gophers running commands in controllers
 type Pool struct {
-	wg         sync.WaitGroup
-	delay      time.Duration
-	timeout    time.Duration
-	loop       time.Duration
-	sem        chan struct{}
-	cancel     chan struct{}
-	skipVerify bool
+	client *http.Client
+	wg     sync.WaitGroup
+	delay  time.Duration
+	loop   time.Duration
+	sem    chan struct{}
+	cancel chan struct{}
 }
 
 // NewPool returns a new Task Pool
-func NewPool(tasks int, delay, timeout, loop time.Duration, skipVerify bool) *Pool {
+func NewPool(tasks int, delay, loop time.Duration, client *http.Client) *Pool {
 	p := &Pool{
-		delay:      delay,
-		timeout:    timeout,
-		loop:       loop,
-		skipVerify: skipVerify,
-		sem:        make(chan struct{}, tasks),
-		cancel:     make(chan struct{}),
+		client: client,
+		delay:  delay,
+		loop:   loop,
+		sem:    make(chan struct{}, tasks),
+		cancel: make(chan struct{}),
 	}
 	return p
 }
@@ -45,10 +44,12 @@ func NewPool(tasks int, delay, timeout, loop time.Duration, skipVerify bool) *Po
 // Push adds the tasks to the pool
 func (p *Pool) Push(md, username, pass string, commands []Task, script Script) chan Result {
 	// Leave notice a new thread is running
-	stream := make(chan Result, 1)
 	p.wg.Add(1)
+	controller := NewController(md, username, pass, p.client)
+	stream := make(chan Result, 1)
 	go func() {
 		defer p.wg.Done()
+		defer controller.Close()
 		defer close(stream)
 		for repeat := true; repeat; {
 			data, err := func() ([]interface{}, error) {
@@ -56,7 +57,6 @@ func (p *Pool) Push(md, username, pass string, commands []Task, script Script) c
 				p.sem <- struct{}{}
 				defer func() { <-p.sem }()
 				// Iterate on the switches, delivering tasks to the queue
-				controller := NewController(md, username, pass, p.timeout, p.skipVerify)
 				return p.run(controller, commands, script)
 			}()
 			// Do not wait on the stream with the semaphore locked!
