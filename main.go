@@ -213,12 +213,13 @@ func main() {
 	defer outputTask.Wait()
 
 	// Feed the pool
-	useSSH, header := false, ""
+	var header []string
+	var useSSH bool
+	if optHide == nil || !(*optHide) {
+		header = commands
+	}
 	if optSSH != nil && *optSSH {
 		useSSH = true
-	}
-	if optHide == nil || !(*optHide) {
-		header = fmt.Sprintf("\n>>> %s\n", strings.Join(commands, ";"))
 	}
 	if *optTasks > len(switches) {
 		*optTasks = len(switches)
@@ -250,26 +251,34 @@ func main() {
 }
 
 // writeLines dumps the array to the given file, or stdout
-func writeResult(factory WriterFactory, MD, header string, stream chan Result) {
+func writeResult(factory WriterFactory, MD string, cmds []string, stream chan Result) {
 	for result := range stream {
 		data, err := result.Data, result.Err
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error in", MD, "stream:", err)
 			continue
 		}
-		lines, err := Select(data, nil)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "Error in", MD, "select:", err)
-			continue
+		lines := []string{}
+		for idx, curr := range data {
+			if cmds != nil {
+				label := "---"
+				if len(cmds) > idx {
+					label = cmds[idx]
+				}
+				lines = append(lines, fmt.Sprintf(">>> %s", label))
+			}
+			partial, err := Select(curr, nil)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "Error in", MD, "select:", err)
+				continue
+			}
+			lines = append(lines, partial...)
 		}
 		// Open the writer each time, to avoid too many handles kept open
 		w, err := factory(MD)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error in", MD, "factory:", err)
 			continue
-		}
-		if header != "" {
-			fmt.Fprintln(w, header)
 		}
 		for _, line := range lines {
 			fmt.Fprintln(w, line)
