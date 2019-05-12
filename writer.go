@@ -38,7 +38,7 @@ func newFactory(prefix string) WriterFactory {
 		fname := fmt.Sprintf("%s%s.log", prefix, MD)
 		label := strings.Join([]string{"*** Controller", MD, "[ ", fname, " ]"}, " ")
 		fmt.Fprintln(os.Stderr, label)
-		return os.Create(fname)
+		return os.OpenFile(fname, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	})
 }
 

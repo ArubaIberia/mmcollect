@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"math/rand"
 	"net/url"
@@ -208,16 +207,8 @@ func main() {
 		stream := pool.Push(md, *optUsername, pass, tasks, script)
 		outputTask.Add(1)
 		go func(md string) {
-			defer outputTask.Done()
-			w, err := factory(md)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, "Error in", md, "factory: ", err)
-				return
-			}
-			defer w.Close()
-			if err := writeResult(w, stream); err != nil {
-				fmt.Fprintln(os.Stderr, "Error in", md, "result: ", err)
-			}
+			writeResult(factory, md, stream)
+			outputTask.Done()
 		}(md)
 	}
 
@@ -236,20 +227,27 @@ func main() {
 }
 
 // writeLines dumps the array to the given file, or stdout
-func writeResult(w io.Writer, stream chan Result) error {
+func writeResult(factory WriterFactory, MD string, stream chan Result) {
 	for result := range stream {
 		data, err := result.Data, result.Err
 		if err != nil {
-			return err
+			fmt.Fprintln(os.Stderr, "Error in", MD, "stream:", err)
+			continue
 		}
 		lines, err := Select(data, nil)
 		if err != nil {
-			return err
+			fmt.Fprintln(os.Stderr, "Error in", MD, "select:", err)
+			continue
 		}
-		// Dump a header to separate different controllers
+		// Open the writer each time, to avoid too many handles kept open
+		w, err := factory(MD)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error in", MD, "factory:", err)
+			continue
+		}
 		for _, line := range lines {
 			fmt.Fprintln(w, line)
 		}
+		w.Close()
 	}
-	return nil
 }
