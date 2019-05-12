@@ -14,7 +14,7 @@ import (
 
 // Script runs a JavaScript engine with a preloaded script
 type Script interface {
-	Run(session *Session, data []interface{}) (interface{}, error)
+	Run(controller *Controller, data []interface{}) (interface{}, error)
 }
 
 type script struct {
@@ -46,15 +46,15 @@ func NewScript(filename string, src interface{}, copies int) (Script, error) {
 }
 
 // Run the script with a given controller and set of data
-func (s *script) Run(session *Session, data []interface{}) (interface{}, error) {
+func (s *script) Run(controller *Controller, data []interface{}) (interface{}, error) {
 	free := <-s.sem
 	defer func() { s.sem <- free }()
 	vm := s.vms[free]
 	// Post(cfgpath, api, data) exported to javascript
 	vm.Set("session", map[string]interface{}{
-		"post": s.jsPost(vm, session),
-		"get":  s.jsGet(vm, session),
-		"ip":   session.Controller().IP(),
+		"post": s.jsPost(vm, controller),
+		"get":  s.jsGet(vm, controller),
+		"ip":   controller.IP(),
 		"date": time.Now().Format("20060102"),
 	})
 	vm.Set("data", data)
@@ -106,16 +106,16 @@ func apiCall(vm *otto.Otto, rFunc requestFunc) func(otto.FunctionCall) otto.Valu
 }
 
 // Post a request, return nil if no error otherwise an error object
-func (s *script) jsPost(vm *otto.Otto, session *Session) func(otto.FunctionCall) otto.Value {
+func (s *script) jsPost(vm *otto.Otto, controller *Controller) func(otto.FunctionCall) otto.Value {
 	return apiCall(vm, func(cfgPath, endpoint string, data interface{}) (interface{}, error) {
-		return session.Post(cfgPath, endpoint, data)
+		return controller.Post(cfgPath, endpoint, data)
 	})
 }
 
 // Get a request, return result body
-func (s *script) jsGet(vm *otto.Otto, session *Session) func(otto.FunctionCall) otto.Value {
+func (s *script) jsGet(vm *otto.Otto, controller *Controller) func(otto.FunctionCall) otto.Value {
 	return apiCall(vm, func(cfgPath, endpoint string, data interface{}) (interface{}, error) {
-		return session.Get(cfgPath, endpoint, data)
+		return controller.Get(cfgPath, endpoint, data)
 	})
 }
 

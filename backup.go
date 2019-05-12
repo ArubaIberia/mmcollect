@@ -74,18 +74,16 @@ func (c *Controller) Backup(to *url.URL) error {
 	if !isValid(file) {
 		return fmt.Errorf("File name '%s' must match '%s'", file, validRegexp)
 	}
-	s, err := c.Session()
-	if err != nil {
+	if err := c.Dial(); err != nil {
 		return err
 	}
-	defer s.Close()
 	log.Print("Building flash backup...")
-	flashFile, err := doBackup(s, file)
+	flashFile, err := doBackup(c, file)
 	if err != nil {
 		return err
 	}
 	log.Print("Copying flash backup to remote server...")
-	if err := doCopy(s, to.Scheme, host, to.User.Username(), pass, flashFile, dir, file); err != nil {
+	if err := doCopy(c, to.Scheme, host, to.User.Username(), pass, flashFile, dir, file); err != nil {
 		return err
 	}
 	log.Print("Downloading flash backup...")
@@ -96,7 +94,7 @@ func (c *Controller) Backup(to *url.URL) error {
 }
 
 // doBackup performs the backup_flash api call and checks for errors
-func doBackup(s *Session, fileName string) (string, error) {
+func doBackup(c *Controller, fileName string) (string, error) {
 	baseFile, suffixes := "", []string{".tar.gz", ".tgz"}
 	for _, suffix := range suffixes {
 		if strings.HasSuffix(fileName, suffix) {
@@ -107,7 +105,7 @@ func doBackup(s *Session, fileName string) (string, error) {
 	if baseFile == "" {
 		return "", fmt.Errorf("Backup file name wrong suffix, must be one of '%s'", strings.Join(suffixes, "', '"))
 	}
-	result, err := s.Post("/md", "object/flash_backup", map[string]string{
+	result, err := c.Post("/md", "object/flash_backup", map[string]string{
 		"backup_flash": "flash",
 		// Not suported in AOS 8.2.2.2
 		// "filename":     baseFile,
@@ -132,11 +130,10 @@ func doBackup(s *Session, fileName string) (string, error) {
 }
 
 // doCopy copies the flash backup to the external server
-func doCopy(s *Session, scheme, host, user, pass, flashFile, dir, file string) error {
+func doCopy(c *Controller, scheme, host, user, pass, flashFile, dir, file string) error {
 	// This doesn't work through the API. The REST API always yields a 'wrong syntax' error
 	cmd := fmt.Sprintf("copy flash: %s %s: %s %s %s %s", flashFile, scheme, host, user, dir, file)
-	mm := s.Controller()
-	out, err := sshInteract(fmt.Sprintf("%s:22", mm.IP()), mm.username, mm.password, cmd, pass)
+	out, err := sshInteract(fmt.Sprintf("%s:22", c.IP()), c.username, c.password, cmd, pass)
 	if err != nil {
 		return err
 	}

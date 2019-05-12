@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -12,6 +13,8 @@ import (
 type Lookup interface {
 	// Runs a lookup against the given object
 	Lookup(interface{}) (interface{}, error)
+	// Returns a string to be used as a filter for SSH show commands
+	ForSSH() (string, error)
 }
 
 // Lookups is a sequence of Lookup objects
@@ -52,6 +55,27 @@ func (l Lookups) Lookup(data interface{}) (interface{}, error) {
 	return data, nil
 }
 
+// ForSSH implements Lookup
+func (l Lookups) ForSSH() (string, error) {
+	filters := make([]string, 0, len(l))
+	for _, curr := range l {
+		filter, err := curr.ForSSH()
+		if err != nil {
+			return "", err
+		}
+		filters = append(filters, filter)
+	}
+	return strings.Join(filters, " | "), nil
+}
+
+type jsonLookup struct {
+	*jsonpath.Compiled
+}
+
+func (jsonLookup) ForSSH() (string, error) {
+	return "", errors.New("JSON filter not applicable as SSH filter")
+}
+
 // NewLookup turns a chain of filters into a list of Lookups
 func NewLookup(chain string) (Lookups, error) {
 	result := make(Lookups, 0, 10)
@@ -60,6 +84,11 @@ func NewLookup(chain string) (Lookups, error) {
 		// "include" filter?
 		if len(x) > 0 && strings.HasPrefix("include", strings.ToLower(strings.TrimSpace(x[0]))) {
 			result = append(result, &includeLookup{text: getText(filter)})
+			continue
+		}
+		// "exclude" filter?
+		if len(x) > 0 && strings.HasPrefix("exclude", strings.ToLower(strings.TrimSpace(x[0]))) {
+			result = append(result, &excludeLookup{text: getText(filter)})
 			continue
 		}
 		// "begin" filter?
@@ -75,7 +104,7 @@ func NewLookup(chain string) (Lookups, error) {
 		if err != nil {
 			return nil, decorate(err, "Failed to compile filter", filter)
 		}
-		result = append(result, compiled)
+		result = append(result, jsonLookup{compiled})
 	}
 	return result, nil
 }
@@ -120,6 +149,10 @@ func (l *includeLookup) Lookup(data interface{}) (interface{}, error) {
 	return result, nil
 }
 
+func (l *includeLookup) ForSSH() (string, error) {
+	return fmt.Sprintf("include \"%s\"", l.text), nil
+}
+
 // Lookup implements Lookup interface
 func (l *excludeLookup) Lookup(data interface{}) (interface{}, error) {
 	lines, err := Select(data, nil)
@@ -133,6 +166,10 @@ func (l *excludeLookup) Lookup(data interface{}) (interface{}, error) {
 		}
 	}
 	return result, nil
+}
+
+func (l *excludeLookup) ForSSH() (string, error) {
+	return fmt.Sprintf("exclude \"%s\"", l.text), nil
 }
 
 // Lookup implements Lookup interface
@@ -149,6 +186,10 @@ func (l *beginLookup) Lookup(data interface{}) (interface{}, error) {
 		}
 	}
 	return result, nil
+}
+
+func (l *beginLookup) ForSSH() (string, error) {
+	return fmt.Sprintf("begin \"%s\"", l.text), nil
 }
 
 // Select turns the data into an array of lines

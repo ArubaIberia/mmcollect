@@ -42,15 +42,19 @@ func NewPool(tasks int, delay, loop time.Duration, client *http.Client) *Pool {
 }
 
 // Push adds the tasks to the pool
-func (p *Pool) Push(md, username, pass string, commands []Task, script Script) chan Result {
+func (p *Pool) Push(md, username, pass string, commands []Task, script Script, useSSH bool) chan Result {
 	// Leave notice a new thread is running
 	p.wg.Add(1)
-	controller := NewController(md, username, pass, p.client)
+	controller := NewController(md, username, pass, p.client, useSSH)
 	stream := make(chan Result, 1)
 	go func() {
 		defer p.wg.Done()
 		defer controller.Close()
 		defer close(stream)
+		if err := controller.Dial(); err != nil {
+			stream <- Result{Data: nil, Err: err}
+			return
+		}
 		for repeat := true; repeat; {
 			data, err := func() ([]interface{}, error) {
 				// Concurrency limit
@@ -88,11 +92,6 @@ func (p *Pool) Close() {
 
 // run the required commands
 func (p *Pool) run(controller *Controller, commands []Task, script Script) ([]interface{}, error) {
-	session, err := controller.Session()
-	if err != nil {
-		return nil, err
-	}
-	defer session.Close()
 	result := make([]interface{}, 0, len(commands))
 	first := true
 	// Get data
@@ -103,7 +102,7 @@ func (p *Pool) run(controller *Controller, commands []Task, script Script) ([]in
 		} else if p.delay > 0 {
 			time.Sleep(p.delay)
 		}
-		curr, err := session.Show(cmd.Cmd, cmd.Path)
+		curr, err := controller.Show(cmd.Cmd, cmd.Path)
 		if err != nil {
 			return nil, err
 		}
@@ -117,7 +116,7 @@ func (p *Pool) run(controller *Controller, commands []Task, script Script) ([]in
 		result = append(result, curr)
 	}
 	if script != nil {
-		post, err := script.Run(session, result)
+		post, err := script.Run(controller, result)
 		if err != nil {
 			return nil, err
 		}

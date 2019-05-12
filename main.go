@@ -50,6 +50,7 @@ func main() {
 	optPassword := flag.String("p", "", "Login password")
 	optDelay := flag.Int("d", DefaultDelay, "Delay between commands (seconds)")
 	optScript := flag.String("s", "", "Path of script file to run for each controller")
+	optSSH := flag.Bool("S", false, "Use SSH instead of API for show commands")
 	optBackup := flag.String("backup", "", "URL for intermediate backup storage (e.g. 'ftp://user:pass@server/folder/filename.tar.gz')")
 	optHide := flag.Bool("H", false, "Hide header line before printing results")
 
@@ -155,7 +156,7 @@ func main() {
 		},
 		Jar: jar,
 	}
-	mm := NewController(*optMD, *optUsername, pass, client)
+	mm := NewController(*optMD, *optUsername, pass, client, false)
 	defer mm.Close()
 
 	// Do we need to do a backup?
@@ -212,7 +213,10 @@ func main() {
 	defer outputTask.Wait()
 
 	// Feed the pool
-	header := ""
+	useSSH, header := false, ""
+	if optSSH != nil && *optSSH {
+		useSSH = true
+	}
 	if optHide == nil || !(*optHide) {
 		header = fmt.Sprintf("\n>>> %s\n", strings.Join(commands, ";"))
 	}
@@ -223,7 +227,7 @@ func main() {
 	factory := NewFactory(*optOutput)
 	pool := NewPool(*optTasks, delay, loop, client)
 	for _, md := range switches {
-		stream := pool.Push(md, *optUsername, pass, tasks, script)
+		stream := pool.Push(md, *optUsername, pass, tasks, script, useSSH)
 		outputTask.Add(1)
 		go func(md string) {
 			writeResult(factory, md, header, stream)
