@@ -47,6 +47,7 @@ func main() {
 	optDelay := flag.Int("d", DefaultDelay, "Delay between commands (seconds)")
 	optScript := flag.String("s", "", "Path of script file to run for each controller")
 	optBackup := flag.String("backup", "", "URL for intermediate backup storage (e.g. 'ftp://user:pass@server/folder/filename.tar.gz')")
+	optHide := flag.Bool("H", false, "Hide header line before printing results")
 
 	// Parse input
 	flag.Parse()
@@ -188,9 +189,6 @@ func main() {
 		switches = switches[:limit]
 	}
 	loop := time.Second * time.Duration(*optLoop)
-	if loop > 0 && *optOutput == "" && len(switches) > 1 {
-		log.Fatal("If -L is specified for more than 1 controller, you must also provide an output prefix with -o")
-	}
 	log.Println("Switch list collected, working on a set of ", len(switches))
 
 	// Set to wait for output
@@ -198,6 +196,10 @@ func main() {
 	defer outputTask.Wait()
 
 	// Feed the pool
+	header := ""
+	if optHide == nil || !(*optHide) {
+		header = fmt.Sprintf("\n>>> %s\n", strings.Join(commands, ";"))
+	}
 	if *optTasks > len(switches) {
 		*optTasks = len(switches)
 	}
@@ -207,7 +209,7 @@ func main() {
 		stream := pool.Push(md, *optUsername, pass, tasks, script)
 		outputTask.Add(1)
 		go func(md string) {
-			writeResult(factory, md, stream)
+			writeResult(factory, md, header, stream)
 			outputTask.Done()
 		}(md)
 	}
@@ -227,7 +229,7 @@ func main() {
 }
 
 // writeLines dumps the array to the given file, or stdout
-func writeResult(factory WriterFactory, MD string, stream chan Result) {
+func writeResult(factory WriterFactory, MD, header string, stream chan Result) {
 	for result := range stream {
 		data, err := result.Data, result.Err
 		if err != nil {
@@ -244,6 +246,9 @@ func writeResult(factory WriterFactory, MD string, stream chan Result) {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error in", MD, "factory:", err)
 			continue
+		}
+		if header != "" {
+			fmt.Fprintln(w, header)
 		}
 		for _, line := range lines {
 			fmt.Fprintln(w, line)
