@@ -56,7 +56,7 @@ func (p *Pool) Push(md, username, pass string, commands []Task, script Script, u
 			return
 		}
 		for repeat := true; repeat; {
-			data, err := func() ([]interface{}, error) {
+			data, done, err := func() ([]interface{}, bool, error) {
 				// Concurrency limit
 				p.sem <- struct{}{}
 				defer func() { <-p.sem }()
@@ -65,7 +65,7 @@ func (p *Pool) Push(md, username, pass string, commands []Task, script Script, u
 			}()
 			// Do not wait on the stream with the semaphore locked!
 			stream <- Result{Data: data, Err: err}
-			if p.loop <= 0 {
+			if done || p.loop <= 0 {
 				repeat = false
 			} else {
 				select {
@@ -91,7 +91,7 @@ func (p *Pool) Close() {
 }
 
 // run the required commands
-func (p *Pool) run(controller *Controller, commands []Task, script Script) ([]interface{}, error) {
+func (p *Pool) run(controller *Controller, commands []Task, script Script) ([]interface{}, bool, error) {
 	result := make([]interface{}, 0, len(commands))
 	first := true
 	// Get data
@@ -104,23 +104,24 @@ func (p *Pool) run(controller *Controller, commands []Task, script Script) ([]in
 		}
 		curr, err := controller.Show(cmd.Cmd, cmd.Path)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if cmd.Attr != nil && len(cmd.Attr) > 0 {
 			selected, err := Select(curr, cmd.Attr)
 			if err != nil {
-				return nil, err
+				return nil, false, err
 			}
 			curr = selected
 		}
 		result = append(result, curr)
 	}
-	if script != nil {
-		post, err := script.Run(controller, result)
-		if err != nil {
-			return nil, err
-		}
-		result = []interface{}{post}
+	if script == nil {
+		return result, false, nil
 	}
-	return result, nil
+	value, done, err := script.Run(controller, result)
+	if err != nil {
+		return nil, done, err
+	}
+	result = []interface{}{value}
+	return result, done, nil
 }

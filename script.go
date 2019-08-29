@@ -14,7 +14,7 @@ import (
 
 // Script runs a JavaScript engine with a preloaded script
 type Script interface {
-	Run(controller *Controller, data []interface{}) (interface{}, error)
+	Run(controller *Controller, data []interface{}) (interface{}, bool, error)
 }
 
 type script struct {
@@ -46,27 +46,32 @@ func NewScript(filename string, src interface{}, copies int) (Script, error) {
 }
 
 // Run the script with a given controller and set of data
-func (s *script) Run(controller *Controller, data []interface{}) (interface{}, error) {
+func (s *script) Run(controller *Controller, data []interface{}) (interface{}, bool, error) {
 	free := <-s.sem
 	defer func() { s.sem <- free }()
 	vm := s.vms[free]
+	done := false
 	// Post(cfgpath, api, data) exported to javascript
 	vm.Set("session", map[string]interface{}{
 		"post": s.jsPost(vm, controller),
 		"get":  s.jsGet(vm, controller),
 		"ip":   controller.IP(),
 		"date": time.Now().Format("20060102"),
+		"done": func(otto.FunctionCall) otto.Value {
+			done = true
+			return otto.UndefinedValue()
+		},
 	})
 	vm.Set("data", data)
 	value, err := vm.Run(s.script)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	native, err := value.Export()
 	if err != nil {
-		return nil, err
+		return nil, done, err
 	}
-	return native, nil
+	return native, done, nil
 }
 
 type requestFunc func(cfgPath, endpoint string, data interface{}) (interface{}, error)

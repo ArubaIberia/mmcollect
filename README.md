@@ -2,7 +2,7 @@
 
 mmcollect is a small tool to collect the output of "show" commands from all controllers (also called MDs or Managed Devices) connected to a Mobility Manager.
 
-The basic usage requires just the IP address (or hostname) of the Mobility Manager, an username, and the command to run: 
+The basic usage requires just the IP address (or hostname) of the Mobility Manager, an username, and the command to run:
 
 ```bash
 # Will dump the "show version" command of all MDs managed by the MM
@@ -33,7 +33,7 @@ The output of "show" requests received through the REST API is not raw text, but
 
 ```bash
 mmcollect -u admin -h your.mm.ip.address "show ip access-list brief"
-Password: 
+Password:
 
 2018/05/10 19:10:06 Getting the switch list
 2018/05/10 19:10:07 Switch list collected, working on a set of 2
@@ -76,7 +76,7 @@ For example, say you want to collect only session access-list:
 
 ```bash
 mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_list_table_4_IPv4_6_IPv6[?(@.Type == 'session(4)')]"
-Password: 
+Password:
 
 2018/05/10 19:15:41 Getting the switch list
 2018/05/10 19:15:41 Switch list collected, working on a set of 2
@@ -101,7 +101,7 @@ Or you want only ACLs with the name "print" in it:
 
 ```bash
 mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_list_table_4_IPv4_6_IPv6[?(@.Name =~ /print/)]"
-Password: 
+Password:
 
 2018/05/10 19:15:41 Getting the switch list
 2018/05/10 19:15:41 Switch list collected, working on a set of 2
@@ -174,7 +174,7 @@ Sometimes you don't want the full JSON object returned by the controller, but ju
 
 ```bash
 mmcollect -u admin -h your.mm.ip.address "show ip access-list brief | $.Access_list_table_4_IPv4_6_IPv6[?(@.Type == 'session(4)')] > Name, Type"
-Password: 
+Password:
 
 2018/05/10 19:15:41 Getting the switch list
 2018/05/10 19:15:41 Switch list collected, working on a set of 2
@@ -219,6 +219,15 @@ What if you want to run some command a few times, like "show datapath session ta
 mmcollect -u admin -h your.mm.ip.address -d 5 "show datapath session table | $.data; show datapath session table | $.data"
 ```
 
+## Looping
+
+Finally, if you want to run the commands in a loop, yo can also use the *-l delay_seconds* flag:
+
+```bash
+# Run "show datapath session" twice, with 5 seconds delay between each run, and then wait for 60 seconds
+mmcollect -u admin -h your.mm.ip.address -l 60 -d 5 "show datapath session table | $.data; show datapath session table | $.data"
+```
+
 ## Saving output to files
 
 You can tell mmconnect to save the output of each controller to a separate file with the *-o <prefix>* flag. Each controller will get its output saved to a separate file, named after the controller's IP address.
@@ -261,6 +270,7 @@ The script must be valid JavaScript, and is parsed using the [otto](https://gith
   - `ip: string`: The IP address of the controller (read-only).
   - `post(cfg_path: string, api_endpoint: string, data: object)`: Send HTTP POST request to the controller.
   - `get(cfg_path: string, api_endpoint: string, data: object)`: Send HTTP GET request to the controller.
+  - `done()`: Stops looping for this MD (if *-l delay* flag was used in the command line)
 
 For instance, say you want to drop all users sending SMB traffic, using `aaa user delete`. You can look for port 445 in the output of the `show datapath session table`, and POST a message to the controller to delete those users. Save this script as *aaa_user_delete.js*:
 
