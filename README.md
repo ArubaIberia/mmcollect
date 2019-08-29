@@ -221,11 +221,11 @@ mmcollect -u admin -h your.mm.ip.address -d 5 "show datapath session table | $.d
 
 ## Looping
 
-Finally, if you want to run the commands in a loop, yo can also use the *-l delay_seconds* flag:
+Finally, if you want to run the commands in a loop, yo can also use the *-L delay_seconds* flag:
 
 ```bash
 # Run "show datapath session" twice, with 5 seconds delay between each run, and then wait for 60 seconds
-mmcollect -u admin -h your.mm.ip.address -l 60 -d 5 "show datapath session table | $.data; show datapath session table | $.data"
+mmcollect -u admin -h your.mm.ip.address -L 60 -d 5 "show datapath session table | $.data; show datapath session table | $.data"
 ```
 
 ## Saving output to files
@@ -270,7 +270,7 @@ The script must be valid JavaScript, and is parsed using the [otto](https://gith
   - `ip: string`: The IP address of the controller (read-only).
   - `post(cfg_path: string, api_endpoint: string, data: object)`: Send HTTP POST request to the controller.
   - `get(cfg_path: string, api_endpoint: string, data: object)`: Send HTTP GET request to the controller.
-  - `done()`: Stops looping for this MD (if *-l delay* flag was used in the command line)
+  - `done()`: Stops looping for this MD (if *-L delay* flag was used in the command line)
 
 For instance, say you want to drop all users sending SMB traffic, using `aaa user delete`. You can look for port 445 in the output of the `show datapath session table`, and POST a message to the controller to delete those users. Save this script as *aaa_user_delete.js*:
 
