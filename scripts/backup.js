@@ -2,7 +2,7 @@
 
 // Comprueba si el resultado del POST es un error
 function errMsg(result) {
-	// Compruebo que la respuyesta viene en el formato adecuado
+	// Compruebo que la respuesta viene en el formato adecuado
 	if (!result._global_result || !result._global_result.status_str) {
 		return JSON.stringify(result)
 	}
