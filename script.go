@@ -18,9 +18,8 @@ type Script interface {
 }
 
 type script struct {
-	vms    []*otto.Otto
+	vms    chan *otto.Otto
 	script *otto.Script
-	sem    chan int
 }
 
 // NewScript returns a bundle of VM + script
@@ -28,35 +27,38 @@ func NewScript(filename string, src interface{}, copies int) (Script, error) {
 	if copies < 1 {
 		copies = 1
 	}
-	sem := make(chan int, copies)
-	vm, vms := otto.New(), make([]*otto.Otto, 1, copies)
+	vm := otto.New()
 	vm.Set("getenv", jsEnv)
 	vm.Set("console", map[string]interface{}{"log": jsLog})
-	vms[0] = vm
-	sem <- 0
 	s, err := vm.Compile(filename, src)
 	if err != nil {
 		return nil, err
 	}
+	vms := make(chan *otto.Otto, copies)
+	vms <- vm
 	for i := 1; i < copies; i++ {
-		vms = append(vms, vm.Copy())
-		sem <- i
+		vms <- vm.Copy()
 	}
-	return &script{vms: vms, script: s, sem: sem}, nil
+	return &script{vms: vms, script: s}, nil
 }
 
 // Run the script with a given controller and set of data
 func (s *script) Run(controller *Controller, data []interface{}) (interface{}, bool, error) {
-	free := <-s.sem
-	defer func() { s.sem <- free }()
-	vm := s.vms[free]
+	// Get a free VM
+	vm, ok := <-s.vms
+	if !ok {
+		return nil, true, errors.New("No more VMs to run scripts on")
+	}
+	defer func() { s.vms <- vm }()
+	// Some variables used for script execution
+	now := time.Now()
 	done := false
-	// Post(cfgpath, api, data) exported to javascript
 	vm.Set("session", map[string]interface{}{
 		"post": s.jsPost(vm, controller),
 		"get":  s.jsGet(vm, controller),
 		"ip":   controller.IP(),
-		"date": time.Now().Format("20060102"),
+		"date": now.Format("2006-01-02"),
+		"time": now.Format("15:04:05"),
 		"done": func(otto.FunctionCall) otto.Value {
 			done = true
 			return otto.UndefinedValue()

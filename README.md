@@ -266,7 +266,8 @@ The script must be valid JavaScript, and is parsed using the [otto](https://gith
 - `getenv(name: string)`: A function to get environment variables by name.
 - `session: Object`: A session object that lets the script interact with the controller. It currently supports:
 
-  - `date: string`: The date of the session, in `YYYYMMdd` format.
+  - `date: string`: The date of the session, in `YYYY-MM-dd` format.
+  - `time: time`: The time of the session, in `HH:mm:ss` format.
   - `ip: string`: The IP address of the controller (read-only).
   - `post(cfg_path: string, api_endpoint: string, data: object)`: Send HTTP POST request to the controller.
   - `get(cfg_path: string, api_endpoint: string, data: object)`: Send HTTP GET request to the controller.
