@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jlaffaye/ftp"
+	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh/terminal"
 )
 
@@ -29,10 +29,10 @@ func (c *Controller) Backup(to *url.URL) error {
 	}
 	ips, err := net.LookupIP(to.Host)
 	if err != nil {
-		return decorate(err, "Failed to lookup host", to.Host)
+		return errors.Wrapf(err, "Failed to lookup host '%s'", to.Host)
 	}
 	if len(ips) <= 0 {
-		return fmt.Errorf("Failed to resolve hostname %s to IP address", to.Host)
+		return errors.Errorf("Failed to resolve hostname '%s' to IP address", to.Host)
 	}
 	host := ips[0].String()
 	log.Printf("Backup server host resolved to %s", host)
@@ -65,14 +65,14 @@ func (c *Controller) Backup(to *url.URL) error {
 	dir = strings.Trim(dir, "/")
 	for _, elem := range strings.Split(dir, "/") {
 		if elem == "" {
-			return fmt.Errorf("Dir path '%s' cannot contain double forward slashes", dir)
+			return errors.Errorf("Dir path '%s' cannot contain double forward slashes", dir)
 		}
 		if !isValid(elem) {
-			return fmt.Errorf("Each componen in dir path '%s' must match '%s'", dir, validRegexp)
+			return errors.Errorf("Each component in dir path '%s' must match '%s'", dir, validRegexp)
 		}
 	}
 	if !isValid(file) {
-		return fmt.Errorf("File name '%s' must match '%s'", file, validRegexp)
+		return errors.Errorf("File name '%s' must match '%s'", file, validRegexp)
 	}
 	if err := c.Dial(); err != nil {
 		return err
@@ -103,7 +103,7 @@ func doBackup(c *Controller, fileName string) (string, error) {
 		}
 	}
 	if baseFile == "" {
-		return "", fmt.Errorf("Backup file name wrong suffix, must be one of '%s'", strings.Join(suffixes, "', '"))
+		return "", errors.Errorf("Backup file name wrong suffix, must be one of '%s'", strings.Join(suffixes, "', '"))
 	}
 	result, err := c.Post("/md", "object/flash_backup", map[string]string{
 		"backup_flash": "flash",
@@ -111,18 +111,18 @@ func doBackup(c *Controller, fileName string) (string, error) {
 		// "filename":     baseFile,
 	})
 	if err != nil {
-		return "", decorate(err, "Failed to post backup request")
+		return "", err
 	}
 	lookup, err := NewLookup("$._global_result.status")
 	if err != nil {
-		return "", decorate(err, "Failed to parse lookup expression")
+		return "", err
 	}
 	status, err := lookup.Lookup(result)
 	if err != nil {
-		return "", decorate(err, "Failed to retrieve status, ", result)
+		return "", err
 	}
 	if status, ok := status.(float64); !ok || status != 0 {
-		return "", fmt.Errorf("Unexpected backup _global_result.status: %+v", result)
+		return "", errors.Errorf("Unexpected (float64) 0 value for backup _global_result.status: '%+v'", result)
 	}
 	// Not supported in AOS 8.2.2.2
 	// return fmt.Sprintf("%s.tar.gz", baseFile), nil
@@ -138,7 +138,7 @@ func doCopy(c *Controller, scheme, host, user, pass, flashFile, dir, file string
 		return err
 	}
 	if !strings.Contains(out, "File uploaded successfully") {
-		return fmt.Errorf("Failed to backup file, %s", strings.TrimSpace(out))
+		return errors.Errorf("Failed to backup file, '%s'", strings.TrimSpace(out))
 	}
 	return nil
 }
@@ -147,40 +147,40 @@ func doCopy(c *Controller, scheme, host, user, pass, flashFile, dir, file string
 func doRetrieve(scheme, host, user, pass, dir, file string) error {
 	// Only ftp currently supported
 	if scheme != "ftp" {
-		return fmt.Errorf("Scheme %s is not supported for local retrieval", scheme)
+		return errors.Errorf("Scheme '%s' is not supported for local retrieval", scheme)
 	}
 	conn, err := ftp.DialTimeout(fmt.Sprintf("%s:21", host), 5*time.Second)
 	if err != nil {
-		return decorate(err, "Failed to connect to ftp server", host)
+		return errors.Wrapf(err, "Failed to connect to ftp server '%s'", host)
 	}
 	defer conn.Quit()
 	if err := conn.Login(user, pass); err != nil {
-		return decorate(err, "Failed to login to ftp server", user)
+		return errors.Wrapf(err, "Failed to login as user '%s'", user)
 	}
 	defer conn.Logout()
 	if err := conn.ChangeDir(dir); err != nil {
-		return decorate(err, "Failed to change to folder", dir)
+		return errors.Wrapf(err, "Failed to change to folder '%s'", dir)
 	}
 	output, err := os.Create(file)
 	if err != nil {
-		return decorate(err, "Failed to create output file", file)
+		return errors.Wrapf(err, "Failed to create output file '%s'", file)
 	}
 	defer output.Close()
 	stream, err := conn.Retr(file)
 	if err != nil {
-		return decorate(err, "Failed to retrieve file", file)
+		return errors.Wrapf(err, "Failed to retrieve file '%s'", file)
 	}
 	if err := func() error {
 		defer stream.Close()
 		if _, err := io.Copy(output, stream); err != nil {
-			return decorate(err, "Failed to save downloaded file", file)
+			return errors.Wrapf(err, "Failed to save downloaded file '%s'", file)
 		}
 		return nil
 	}(); err != nil {
 		return err
 	}
 	if err := conn.Delete(file); err != nil {
-		return decorate(err, "Failed to remove remote file", file)
+		return errors.Wrapf(err, "Failed to remove remote file '%s'", file)
 	}
 	return nil
 }

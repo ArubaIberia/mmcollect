@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -19,7 +20,7 @@ func sshInteract(addr, user, pass, cmd, stdin string) (string, error) {
 		BannerCallback:  ssh.BannerDisplayStderr(),
 	})
 	if err != nil {
-		return "", decorate(err, "Failed to SSH to", addr)
+		return "", errors.Wrapf(err, "Failed to SSH to '%s'", addr)
 	}
 	defer client.Close()
 	out, err := runCommand(client, cmd, stdin)
@@ -46,10 +47,10 @@ func runCommand(client *ssh.Client, command, stdin string) (string, error) {
 	sess.Stdout = &b
 	sess.Stderr = &e
 	if err = sess.Shell(); err != nil /* .Start(command); err != nil */ {
-		return "", decorate(err, "Failed to run command through remote shell", command)
+		return "", errors.Wrapf(err, "Failed to run command '%s' through remote shell", command)
 	}
 	if err = sess.Wait(); err != nil {
-		return "", decorate(err, "Failed to finish command", command)
+		return "", errors.Wrapf(err, "Failed to finish command '%s'", command)
 	}
 	combined := strings.Join([]string{b.String(), e.String()}, "")
 	return combined, nil

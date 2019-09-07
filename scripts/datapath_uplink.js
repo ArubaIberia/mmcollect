@@ -24,7 +24,6 @@ var redes = _.map(interfaces, function(ip) {
 	// Simplificando, no tengo en cuenta la mascara
 	return ip.substr(0, ip.lastIndexOf(".") + 1);
 });
-console.log("BUSCANDO TRAFICO ENTRE REDES " + redes);
 
 // Comprueba si las dos IPs (origen y destino) son internas a la tienda.
 // Si lo son, las devuelve.

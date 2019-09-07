@@ -2,11 +2,11 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/oliveagle/jsonpath"
+	"github.com/pkg/errors"
 )
 
 // Lookup implements a jsonpath search
@@ -19,20 +19,6 @@ type Lookup interface {
 
 // Lookups is a sequence of Lookup objects
 type Lookups []Lookup
-
-type decorated struct {
-	err error
-	msg string
-}
-
-// Error implements error interface
-func (d decorated) Error() string {
-	return fmt.Sprintf("%s, err: %s", d.msg, d.err)
-}
-
-func decorate(err error, data ...interface{}) error {
-	return decorated{err: err, msg: fmt.Sprint(data...)}
-}
 
 // Lookup implements interface Lookup
 func (l Lookups) Lookup(data interface{}) (interface{}, error) {
@@ -102,7 +88,7 @@ func NewLookup(chain string) (Lookups, error) {
 		}
 		compiled, err := jsonpath.Compile(filter)
 		if err != nil {
-			return nil, decorate(err, "Failed to compile filter", filter)
+			return nil, errors.Wrapf(err, "Failed to compile filter '%s'", filter)
 		}
 		result = append(result, jsonLookup{compiled})
 	}
@@ -251,7 +237,7 @@ func mapToString(data map[string]interface{}, attribs []string) ([]string, error
 	// As a fallback, just dump json
 	out, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
-		return nil, decorate(err, "Failed to marshal object to JSON,", data)
+		return nil, errors.Wrapf(err, "Failed to marshal JSON from '%+v'", data)
 	}
 	return strings.Split(string(out), "\n"), nil
 }

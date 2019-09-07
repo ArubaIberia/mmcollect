@@ -1,13 +1,13 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/robertkrimen/otto"
 	_ "github.com/robertkrimen/otto/underscore"
 )
@@ -67,11 +67,11 @@ func (s *script) Run(controller *Controller, data []interface{}) (interface{}, b
 	vm.Set("data", data)
 	value, err := vm.Run(s.script)
 	if err != nil {
-		return nil, false, err
+		return nil, false, errors.Wrap(err, "Failed to run script")
 	}
 	native, err := value.Export()
 	if err != nil {
-		return nil, done, err
+		return nil, done, errors.Wrapf(err, "Failed to export script result '%+v'", value)
 	}
 	return native, done, nil
 }

@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -14,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -68,13 +68,13 @@ func (c *Controller) login() error {
 	apiURL, data := fmt.Sprintf("%s/api/login", c.url), url.Values{}
 	parsedURL, err := url.Parse(apiURL)
 	if err != nil {
-		return decorate(err, "Parsing login URL", apiURL, "failed")
+		return errors.Wrapf(err, "Parsing login URL '%s' failed", apiURL)
 	}
 	data.Set("username", c.username)
 	data.Set("password", c.password)
 	req, err := http.NewRequest(http.MethodPost, apiURL, strings.NewReader(data.Encode()))
 	if err != nil {
-		return decorate(err, "Building request for", apiURL, "failed")
+		return errors.Wrapf(err, "Building request for '%s' failed", apiURL)
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Add("Accept", "application/json")
@@ -83,18 +83,18 @@ func (c *Controller) login() error {
 		defer resp.Body.Close()
 	}
 	if err != nil {
-		return decorate(err, "Login request to MD", c.md, "failed")
+		return errors.Wrapf(err, "Login request to MD '%s' failed", c.md)
 	}
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("MD %s: Login incorrect (username %s)", c.md, c.username)
+		return errors.Errorf("MD '%s': Login incorrect (username '%s')", c.md, c.username)
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("MD %s: Could not read login response", c.md)
+		return errors.Errorf("MD '%s': Could not read login response", c.md)
 	}
 	lr := loginResponse{}
 	if err := json.Unmarshal(body, &lr); err != nil {
-		return fmt.Errorf("MD %s: Expected login response, got %s", c.md, string(body))
+		return errors.Errorf("MD '%s': Expected login response, got '%s'", c.md, string(body))
 	}
 	c.lastToken = lr.GlobalResult.UIDARUBA
 	for _, cookie := range c.client.Jar.Cookies(parsedURL) {
@@ -103,7 +103,7 @@ func (c *Controller) login() error {
 			return nil
 		}
 	}
-	return fmt.Errorf("MD %s: No SESSION cookie received", c.md)
+	return errors.Errorf("MD '%s': No SESSION cookie received", c.md)
 }
 
 // sshLogin opens a new session to the controller
@@ -118,7 +118,7 @@ func (c *Controller) sshLogin() error {
 	}
 	client, err := ssh.Dial("tcp", fmt.Sprintf("%s:22", c.md), config)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "Failed to dial SSH to '%s'", c.md)
 	}
 	c.sshClient = client
 	c.lastSSH = time.Now()
@@ -132,14 +132,14 @@ func (c *Controller) logout() error {
 		defer resp.Body.Close()
 	}
 	if err != nil {
-		return decorate(err, "Failed to perform logout request to", c.md)
+		return errors.Wrapf(err, "Failed to perform logout request to '%s'", c.md)
 	}
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("Logout returned error code %d (%s)", resp.StatusCode, resp.Status)
+		return errors.Errorf("Logout returned error code %d (%s)", resp.StatusCode, resp.Status)
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return decorate(err, "Could not read body of logout response")
+		return errors.Wrap(err, "Could not read body of logout response")
 	}
 	if !strings.Contains(string(body), "You've been logged out successfully.") {
 		return errors.New(string(body))
@@ -153,7 +153,7 @@ func (c *Controller) sshLogout() error {
 	}
 	err := c.sshClient.Close()
 	c.sshClient = nil
-	return err
+	return errors.WithStack(err)
 }
 
 // Dial an SSH API session, before running
@@ -229,7 +229,7 @@ func (c *Controller) Get(cfgPath, endpoint string, data interface{}) (interface{
 			}
 		}
 	default:
-		return nil, fmt.Errorf("Invalid params type: %T", data)
+		return nil, errors.Errorf("Invalid params type: %T", data)
 	}
 	return c.apiRequest(http.MethodGet, cfgPath, endpoint, params, nil)
 }
@@ -240,7 +240,7 @@ func (c *Controller) Post(cfgPath, endpoint string, data interface{}) (interface
 	if data != nil {
 		marshaled, err := json.Marshal(data)
 		if err != nil {
-			return nil, decorate(err, "Failed to marshal data to json,", data)
+			return nil, errors.Wrapf(err, "Failed to marshal data to json: '%+v'", data)
 		}
 		body = bytes.NewReader(marshaled)
 	}
@@ -255,7 +255,7 @@ func (c *Controller) Show(cmd string, path Lookup) (interface{}, error) {
 		// Run the command via API
 		result, err = c.Get("/mm", "showcommand", map[string]string{"command": cmd})
 		if err != nil {
-			return nil, decorate(err, "Failed to GET show command from ", c.md)
+			return nil, err
 		}
 		if path != nil {
 			lookup, err := path.Lookup(result)
@@ -276,7 +276,7 @@ func (c *Controller) Show(cmd string, path Lookup) (interface{}, error) {
 	}
 	sshSession, err := c.sshClient.NewSession()
 	if err != nil {
-		return nil, decorate(err, "Failed to create SSH session to ", c.md)
+		return nil, errors.Wrapf(err, "Failed to create SSH session to '%s'", c.md)
 	}
 	defer sshSession.Close()
 	// Once a Session is created, you can execute a single command on
@@ -285,7 +285,7 @@ func (c *Controller) Show(cmd string, path Lookup) (interface{}, error) {
 	sshSession.Stdout = &b
 	sshSession.Stderr = &e
 	if err := sshSession.Run(cmd); err != nil {
-		return nil, decorate(err, "Failed to Run SSH command on ", c.md)
+		return nil, errors.Wrapf(err, "Failed to Run SSH command on '%s'", c.md)
 	}
 	data := strings.Split(b.String(), "\n")
 	return append(data, strings.Split(e.String(), "\n")...), nil
@@ -298,7 +298,7 @@ func (c *Controller) apiRequest(method, cfgPath, endpoint string, params map[str
 	textURL := fmt.Sprintf("%s/configuration/%s", c.url, endpoint)
 	apiURL, err := url.Parse(textURL)
 	if err != nil {
-		return "", decorate(err, "Failed to parse url", textURL)
+		return "", errors.Wrapf(err, "Failed to parse url '%s'", textURL)
 	}
 	query := apiURL.Query()
 	query.Set("config_path", cfgPath)
@@ -312,7 +312,7 @@ func (c *Controller) apiRequest(method, cfgPath, endpoint string, params map[str
 	apiURL.RawQuery = query.Encode()
 	req, err := http.NewRequest(method, apiURL.String(), body)
 	if err != nil {
-		return nil, decorate(err, "Failed to build request for md", c.md)
+		return nil, errors.Wrapf(err, "Failed to build request for md '%s'", c.md)
 	}
 	if body != nil {
 		req.Header.Add("Content-Type", "application/json")
@@ -324,18 +324,18 @@ func (c *Controller) apiRequest(method, cfgPath, endpoint string, params map[str
 		defer resp.Body.Close()
 	}
 	if err != nil {
-		return nil, decorate(err, "Failed to run request from md", c.md)
+		return nil, errors.Wrapf(err, "Failed to run request from md '%s'", c.md)
 	}
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%s '%s' returned error code %d", method, apiURL.String(), resp.StatusCode)
+		return nil, errors.Errorf("%s '%s' returned error code %d", method, apiURL.String(), resp.StatusCode)
 	}
 	bodyBytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, decorate(err, "Failed to read response body from md", c.md)
+		return nil, errors.Wrapf(err, "Failed to read response body from md '%s'", c.md)
 	}
 	var data interface{}
 	if err := json.Unmarshal(bodyBytes, &data); err != nil {
-		return nil, decorate(err, "Failed to decode data", string(bodyBytes))
+		return nil, errors.Wrapf(err, "Failed to decode data '%s'", string(bodyBytes))
 	}
 	result := noWhitespace(data, c.reg)
 	return result, nil
