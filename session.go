@@ -64,17 +64,17 @@ func (c *Controller) IP() string {
 }
 
 // Login opens a new session to the controller
-func (c *Controller) login() error {
+func (c *Controller) login() (token string, expires time.Time, err error) {
 	apiURL, data := fmt.Sprintf("%s/api/login", c.url), url.Values{}
 	parsedURL, err := url.Parse(apiURL)
 	if err != nil {
-		return errors.Wrapf(err, "Parsing login URL '%s' failed", apiURL)
+		return token, expires, errors.Wrapf(err, "Parsing login URL '%s' failed", apiURL)
 	}
 	data.Set("username", c.username)
 	data.Set("password", c.password)
 	req, err := http.NewRequest(http.MethodPost, apiURL, strings.NewReader(data.Encode()))
 	if err != nil {
-		return errors.Wrapf(err, "Building request for '%s' failed", apiURL)
+		return token, expires, errors.Wrapf(err, "Building request for '%s' failed", apiURL)
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Add("Accept", "application/json")
@@ -83,31 +83,31 @@ func (c *Controller) login() error {
 		defer resp.Body.Close()
 	}
 	if err != nil {
-		return errors.Wrapf(err, "Login request to MD '%s' failed", c.md)
+		return token, expires, errors.Wrapf(err, "Login request to MD '%s' failed", c.md)
 	}
 	if resp.StatusCode != 200 {
-		return errors.Errorf("MD '%s': Login incorrect (username '%s')", c.md, c.username)
+		return token, expires, errors.Errorf("MD '%s': Login incorrect (username '%s')", c.md, c.username)
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return errors.Errorf("MD '%s': Could not read login response", c.md)
+		return token, expires, errors.Errorf("MD '%s': Could not read login response", c.md)
 	}
 	lr := loginResponse{}
 	if err := json.Unmarshal(body, &lr); err != nil {
-		return errors.Errorf("MD '%s': Expected login response, got '%s'", c.md, string(body))
+		return token, expires, errors.Errorf("MD '%s': Expected login response, got '%s'", c.md, string(body))
 	}
-	c.lastToken = lr.GlobalResult.UIDARUBA
+	token = lr.GlobalResult.UIDARUBA
 	for _, cookie := range c.client.Jar.Cookies(parsedURL) {
 		if cookie.Name == "SESSION" {
-			c.expires = cookie.Expires
-			return nil
+			expires = cookie.Expires
+			return token, expires, nil
 		}
 	}
-	return errors.Errorf("MD '%s': No SESSION cookie received", c.md)
+	return token, expires, errors.Errorf("MD '%s': No SESSION cookie received", c.md)
 }
 
 // sshLogin opens a new session to the controller
-func (c *Controller) sshLogin() error {
+func (c *Controller) sshLogin() (*ssh.Client, error) {
 	config := &ssh.ClientConfig{
 		User: c.username,
 		Auth: []ssh.AuthMethod{
@@ -118,14 +118,18 @@ func (c *Controller) sshLogin() error {
 	}
 	client, err := ssh.Dial("tcp", fmt.Sprintf("%s:22", c.md), config)
 	if err != nil {
-		return errors.Wrapf(err, "Failed to dial SSH to '%s'", c.md)
+		return nil, errors.Wrapf(err, "Failed to dial SSH to '%s'", c.md)
 	}
-	c.sshClient = client
-	c.lastSSH = time.Now()
-	return nil
+	return client, nil
 }
 
 func (c *Controller) logout() error {
+	defer func() {
+		// Make sure we clean the struct no matter what
+		c.lastUsed = time.Time{}
+		c.lastToken = ""
+		c.expires = time.Time{}
+	}()
 	apiURL := fmt.Sprintf("%s/api/logout?UIDARUBA=%s", c.url, c.lastToken)
 	resp, err := c.client.Get(apiURL)
 	if resp != nil && resp.Body != nil {
@@ -148,12 +152,14 @@ func (c *Controller) logout() error {
 }
 
 func (c *Controller) sshLogout() error {
-	if c.sshClient == nil {
-		return nil
+	defer func() {
+		c.sshClient = nil
+		c.lastSSH = time.Time{}
+	}()
+	if c.sshClient != nil {
+		return errors.WithStack(c.sshClient.Close())
 	}
-	err := c.sshClient.Close()
-	c.sshClient = nil
-	return errors.WithStack(err)
+	return nil
 }
 
 // Dial an SSH API session, before running
@@ -164,28 +170,33 @@ func (c *Controller) Dial() error {
 		if c.lastToken != "" {
 			c.logout()
 		}
-		if err := c.login(); err != nil {
+		token, expires, err := c.login()
+		if err != nil {
 			return err
 		}
+		c.lastToken = token
+		c.expires = expires
 	}
 	c.lastUsed = now
 	// SSH is only dialed on demand
 	if c.useSSH {
-		return c.sshDial()
+		return c.sshDial(now)
 	}
 	return nil
 }
 
-func (c *Controller) sshDial() error {
-	now := time.Now()
+func (c *Controller) sshDial(now time.Time) error {
 	if (c.sshClient == nil) || c.lastSSH.IsZero() || (now.Sub(c.lastSSH).Minutes() > 5) {
 		if c.sshClient != nil {
 			c.sshLogout()
 		}
-		if err := c.sshLogin(); err != nil {
+		client, err := c.sshLogin()
+		if err != nil {
 			return err
 		}
+		c.sshClient = client
 	}
+	c.lastSSH = now
 	return nil
 }
 
@@ -196,13 +207,11 @@ func (c *Controller) Close() error {
 		if err1 := c.logout(); err1 != nil {
 			err = err1
 		}
-		c.lastToken = ""
 	}
 	if c.sshClient != nil {
 		if err2 := c.sshLogout(); err2 != nil && err == nil {
 			err = err2
 		}
-		c.sshClient = nil
 	}
 	if err != nil {
 		// A common pattern will be just defer session.Close()

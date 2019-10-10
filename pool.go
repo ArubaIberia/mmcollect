@@ -51,29 +51,29 @@ func (p *Pool) Push(md, username, pass string, commands []Task, script Script, u
 		defer p.wg.Done()
 		defer controller.Close()
 		defer close(stream)
-		if err := controller.Dial(); err != nil {
-			stream <- Result{Data: nil, Err: err}
-			return
-		}
-		for repeat := true; repeat; {
-			data, done, err := func() ([]interface{}, bool, error) {
-				// Concurrency limit
-				p.sem <- struct{}{}
-				defer func() { <-p.sem }()
-				// Iterate on the switches, delivering tasks to the queue
-				return p.run(controller, commands, script)
-			}()
-			// Do not wait on the stream with the semaphore locked!
+		for {
+			// Dial does session caching, will refresh credentials if needed
+			var data []interface{}
+			var done bool
+			err := controller.Dial()
+			if err == nil {
+				data, done, err = func() ([]interface{}, bool, error) {
+					// Do this in a closure to use defer() and make sure
+					// we release the lock after running the task, whatever the error
+					p.sem <- struct{}{}
+					defer func() { <-p.sem }()
+					// Iterate on the switches, delivering tasks to the queue
+					return p.run(controller, commands, script)
+				}()
+			}
 			stream <- Result{Data: data, Err: err}
 			if done || p.loop <= 0 {
-				repeat = false
-			} else {
-				select {
-				case <-time.After(p.loop):
-					repeat = true
-				case <-p.cancel:
-					repeat = false
-				}
+				return
+			}
+			select {
+			case <-time.After(p.loop): // do nothing
+			case <-p.cancel:
+				return
 			}
 		}
 	}()
